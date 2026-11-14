@@ -30,6 +30,68 @@ async function fillSystem() {
   ].join("");
 }
 
+// ── YouTube cookies ──
+const when = (iso) => (iso ? new Date(iso).toLocaleString() : "");
+
+function cookieSummary(c) {
+  if (!c.loaded) return { ok: false, text: "No cookies loaded", detail: "Add cookies if YouTube asks you to sign in." };
+  if (c.source === "browser" && !c.count) return { ok: true, text: `Loaded from ${esc(c.browser)}`, detail: "Read from the browser profile (host only)." };
+  const warn = c.warnings[0];
+  const bits = [`${c.count} cookies`, c.login ? "signed in" : "not signed in"];
+  if (c.expires_at) bits.push(`login expires ${when(c.expires_at)}`);
+  return { ok: c.login && !warn, warn: !!warn || !c.login, text: "Cookies loaded", detail: esc(warn || bits.join(" · ")) };
+}
+
+function paintCookies(c) {
+  const s = cookieSummary(c);
+  const icon = s.ok ? "check-circle-fill" : s.warn ? "exclamation-triangle-fill" : "x-circle-fill";
+  const col = s.ok ? "ok" : s.warn ? "warn" : "bad";
+  const html = `<i class="bi bi-${icon}" style="color:var(--${col})"></i> ${s.text}`;
+  $("#ck-status").innerHTML = html;
+  $("#ck-detail").innerHTML = s.detail;
+  $("#ck-modal-status").innerHTML = `${html} <span class="faint">— ${s.detail}</span>`;
+  $("#ck-path").textContent = c.path || "cookies/cookies.txt";
+  $("#ck-clear").hidden = c.source !== "file";
+}
+
+async function loadCookies() {
+  try { paintCookies(await api.cookies()); } catch (e) { $("#ck-status").textContent = "Unavailable"; }
+}
+
+async function openCookies() {
+  $("#ck-text").value = "";
+  $("#ck-test-result").textContent = "";
+  bootstrap.Modal.getInstance($("#settings-modal"))?.hide();   // one modal at a time
+  bootstrap.Modal.getOrCreateInstance($("#cookies-modal")).show();
+  loadCookies();
+}
+
+async function saveCookies(btn) {
+  try {
+    const c = await withBusy(btn, () => api.saveCookies($("#ck-text").value));
+    paintCookies(c);
+    $("#ck-text").value = "";
+    toast(c.warnings.length ? c.warnings.join(" ") : "Cookies saved — used immediately.", c.login ? "ok" : "warn", { ms: 4500 });
+    testCookies($("#ck-test"));   // validate against YouTube right away and show the verdict
+  } catch (e) { toast(e.detail || e.message, "err"); }
+}
+
+function paintTest(r) {
+  const el = $("#ck-test-result");
+  el.innerHTML = `<i class="bi bi-${r.ok ? "check-circle-fill" : "x-circle-fill"}" style="color:var(--${r.ok ? "ok" : "bad"})"></i> ${esc(r.message)} <span class="faint">(${r.took_ms} ms)</span>`;
+}
+
+async function testCookies(btn) {
+  $("#ck-test-result").textContent = "Checking with YouTube…";
+  try { paintTest(await withBusy(btn, () => api.testCookies())); }
+  catch (e) { $("#ck-test-result").textContent = e.detail || e.message; }
+}
+
+async function clearCookies(btn) {
+  try { paintCookies(await withBusy(btn, () => api.clearCookies())); toast("Cookies removed.", "ok", { ms: 2500 }); }
+  catch (e) { toast(e.detail || e.message, "err"); }
+}
+
 async function openSettings() {
   const modal = bootstrap.Modal.getOrCreateInstance($("#settings-modal"));
   modal.show();
@@ -46,7 +108,7 @@ async function openSettings() {
       $("#s-speed-unit").value = mb ? "1048576" : "1024";
       $("#s-speed").value = Math.round(rt.speed_limit / (mb ? 1048576 : 1024));
     } else { $("#s-speed").value = ""; }
-    await fillSystem();
+    await Promise.all([fillSystem(), loadCookies()]);
   } catch (e) { toast(e.detail || e.message, "err"); }
 }
 
@@ -67,6 +129,10 @@ export function initSettings() {
   $("#health-pill").addEventListener("click", openSettings);
   $("#s-par").addEventListener("input", (e) => setText($("#s-par-val"), e.target.value));
   $("#s-save").addEventListener("click", (e) => save(e.currentTarget));
+  $("#ck-open").addEventListener("click", openCookies);
+  $("#ck-save").addEventListener("click", (e) => saveCookies(e.currentTarget));
+  $("#ck-clear").addEventListener("click", (e) => clearCookies(e.currentTarget));
+  $("#ck-test").addEventListener("click", (e) => testCookies(e.currentTarget));
 }
 
 /** Update the header pill + the "no worker" banner. */

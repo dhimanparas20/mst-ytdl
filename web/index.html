@@ -238,6 +238,29 @@
   </nav>
 
   <!-- settings modal -->
+  <div class="modal fade" id="cookies-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title"><i class="bi bi-shield-lock me-2 grad-text"></i>YouTube cookies</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+        <div class="modal-body">
+          <div id="ck-modal-status" class="mb-1" style="font-size:13px"></div>
+          <div id="ck-test-result" class="mb-2" style="font-size:13px" aria-live="polite"></div>
+          <textarea id="ck-text" class="form-control mono" rows="12" spellcheck="false" autocomplete="off" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com&#9;TRUE&#9;/&#9;TRUE&#9;1893456000&#9;SID&#9;…" style="font-size:12px;white-space:pre;overflow:auto"></textarea>
+          <div class="faint mt-2" style="font-size:12px">
+            In a browser where you are signed in (a private window works best), open youtube.com and export <b>Netscape format</b> with a “cookies.txt” extension, then paste it here.
+            Only youtube.com / google.com cookies are kept. The values are stored on the server in <span class="mono" id="ck-path">cookies/cookies.txt</span> and are never shown again.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-ghost" id="ck-test" type="button"><i class="bi bi-activity"></i>Test</button>
+          <button class="btn-ghost danger me-auto" id="ck-clear" type="button"><i class="bi bi-trash3"></i>Remove cookies</button>
+          <button class="btn-ghost" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn-grad" id="ck-save" type="button" style="padding:9px 18px"><i class="bi bi-check2"></i>Save cookies</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal fade" id="settings-modal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
@@ -252,6 +275,12 @@
             <select id="s-speed-unit" class="form-select" style="width:110px"><option value="1024">KB/s</option><option value="1048576">MB/s</option></select>
           </div>
           <hr style="border-color:var(--stroke);opacity:1;margin:22px 0 16px">
+          <div class="field-label">YouTube cookies</div>
+          <div class="glass-in p-3 flex items-center gap-3" style="font-size:13px">
+            <div class="flex-grow-1" style="min-width:0"><div id="ck-status" class="fw-semibold"></div><div id="ck-detail" class="faint" style="font-size:12px"></div></div>
+            <button class="btn-ghost sm" id="ck-open" type="button"><i class="bi bi-pencil-square"></i>Edit</button>
+          </div>
+          <div class="faint mt-1 mb-3" style="font-size:12px">Fixes “Sign in to confirm you’re not a bot”. Paste a Netscape <span class="mono">cookies.txt</span>.</div>
           <div class="field-label">System</div>
           <div id="sys-info" class="glass-in p-3" style="font-size:13px"></div>
         </div>

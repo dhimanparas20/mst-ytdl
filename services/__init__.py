@@ -3,6 +3,7 @@ services/ — business-logic layer (AGENTS.md §2).
 Public surface: import from here, never from service module paths directly.
 """
 
+from services.cookies import CookieService, cookie_service
 from services.dispatch import Dispatcher, get_dispatcher, set_dispatcher
 from services.downloader import DownloadRunner, download_runner
 from services.errors import ConflictError, InvalidRequestError, NotFoundError, ServiceError, UpstreamError
@@ -14,6 +15,8 @@ from services.store import JobStore, job_store
 from services.streaming import MediaStream, StreamService, stream_service
 
 __all__ = [
+    "CookieService",
+    "cookie_service",
     "ConflictError",
     "Dispatcher",
     "DownloadManager",

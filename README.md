@@ -71,7 +71,9 @@ YouTube sometimes blocks an IP that makes many requests; every lookup (downloads
 | `DL_COOKIES_FROM_BROWSER=chrome` (or `firefox`, `edge`) | Only when the app runs **on your machine** (`uv run`), **not in Docker** (the container cannot see your browser profile) | Set it in `.env`, restart |
 | `DL_COOKIES_FILE=<path to an exported cookies.txt>` | Everywhere, **including Docker** if the file is mounted into the container | see below |
 
-**Docker:** 1) In a browser where you are logged in to YouTube, install a "cookies.txt" exporter extension (e.g. *Get cookies.txt LOCALLY*), open youtube.com and export in **Netscape format**. 2) Save it as `./cookies/cookies.txt` (compose mounts `./cookies` at `/app/cookies`; the folder is gitignored). 3) In `.env` set `DL_COOKIES_FILE=/app/cookies/cookies.txt`. 4) `docker compose up -d --build`. Tip: use a throw-away Google account — heavy automated use can get an account flagged — and re-export when cookies expire. Never commit or share the file.
+**Easiest — in the web UI:** Settings → *YouTube cookies* → **Edit**, paste the Netscape `cookies.txt`, **Save cookies**. The server validates the format, keeps only youtube.com / google.com cookies, stores them (owner-only) in `cookies/cookies.txt` and immediately runs a **live test** against YouTube (shows ✓/✗ with the reason). Settings shows whether cookies are loaded, whether they are a signed-in session, and when the login expires (warns when logged-out, expired or expiring within a week). Cookie values are never sent back to the browser. *Test* re-checks any time; *Remove cookies* deletes the file. No restart needed.
+
+**Docker (manual file):** 1) In a browser where you are logged in to YouTube, install a "cookies.txt" exporter extension (e.g. *Get cookies.txt LOCALLY*), open youtube.com and export in **Netscape format**. 2) Save it as `./cookies/cookies.txt` (compose mounts `./cookies` at `/app/cookies`; the folder is gitignored). 3) In `.env` set `DL_COOKIES_FILE=/app/cookies/cookies.txt`. 4) `docker compose up -d --build`. Tip: use a throw-away Google account — heavy automated use can get an account flagged — and re-export when cookies expire. Never commit or share the file.
 
 ## Architecture
 
@@ -133,6 +135,7 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `GET /stream/{id}/info` · `/stream/{id}/media?format=` · `/stream/{id}/subs?lang=` | Player: qualities + subtitle tracks, ranged stream proxy, WebVTT |
 | `GET /library/subtitles` · `/library/subtitle` | Subtitle tracks of a downloaded video |
 | `POST /library/bulk-delete` · `/library/move` · `/library/rename` · `GET /library/folders` | Library bulk operations; `GET /library/zip?path=a&path=b` zips a selection |
+| `GET /cookies` · `PUT /cookies` `{text}` · `DELETE /cookies` · `POST /cookies/test` | Cookie status (flags/counts only), save pasted Netscape cookies, remove, live-test against YouTube |
 | `GET /events` | SSE stream of queue snapshots |
 | `GET /library` · `/library/file` · `/library/zip` · `DELETE /library` · `GET /library/usage` | Browse, stream (Range), zip, delete |
 | `GET/PUT /runtime` · `GET /config` · `GET /health` | Live settings, UI option lists, dependency check |

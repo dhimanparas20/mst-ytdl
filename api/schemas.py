@@ -98,3 +98,9 @@ class ConfigResponse(BaseModel):
     max_playlist_items: int
     downloads_dir: str
     timezone: str
+
+
+class CookieUpload(BaseModel):
+    """Body of ``PUT /cookies``: the text of a Netscape cookies.txt."""
+
+    text: str = Field(max_length=600_000)

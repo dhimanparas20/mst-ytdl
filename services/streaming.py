@@ -121,6 +121,11 @@ class StreamService:
                 self._cache.popitem(last=False)
         return raw, info
 
+    def clear(self) -> None:
+        """Drop every cached entry (e.g. after the cookies changed)."""
+        with self._lock:
+            self._cache.clear()
+
     def forget(self, video_id: str) -> None:
         """Drop a cached entry (its signed URLs went stale)."""
         with self._lock:

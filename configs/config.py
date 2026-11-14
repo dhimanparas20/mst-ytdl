@@ -88,6 +88,12 @@ class DownloadSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="dl_", **_COMMON)
 
+    @property
+    def cookies_path(self) -> Path:
+        """Cookies file in use: ``DL_COOKIES_FILE`` or ``<repo>/cookies/cookies.txt`` (the web UI writes here)."""
+        p = self.cookies_file or Path("cookies") / "cookies.txt"
+        return p if p.is_absolute() else BASE_DIR / p
+
     @field_validator("downloads_dir", mode="after")
     @classmethod
     def _absolute_downloads_dir(cls, v: Path) -> Path:

@@ -212,8 +212,8 @@ def build_ydl_opts(
     js = get_js_runtimes()
     if js:
         opts["js_runtimes"] = js
-    if dl.cookies_file:
-        opts["cookiefile"] = str(dl.cookies_file)
+    if dl.cookies_path.is_file():  # checked per call: saving cookies in the UI needs no restart
+        opts["cookiefile"] = str(dl.cookies_path)
     if dl.cookies_from_browser:
         opts["cookiesfrombrowser"] = (dl.cookies_from_browser,)
     if dl.proxy:
@@ -251,8 +251,8 @@ def base_extract_opts(*, flat: bool = False, max_items: int | None = None) -> di
     js = get_js_runtimes()
     if js:
         opts["js_runtimes"] = js
-    if dl.cookies_file:
-        opts["cookiefile"] = str(dl.cookies_file)
+    if dl.cookies_path.is_file():  # checked per call: saving cookies in the UI needs no restart
+        opts["cookiefile"] = str(dl.cookies_path)
     if dl.cookies_from_browser:
         opts["cookiesfrombrowser"] = (dl.cookies_from_browser,)
     if dl.proxy:

@@ -7,10 +7,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_NO_PROGRESS=1 \
     PATH="/app/.venv/bin:$PATH"
 
-# ffmpeg: merge/convert · nodejs: JS runtime yt-dlp needs for YouTube
+# ffmpeg: merge/convert. Node is copied below (Debian's nodejs v20 is rejected by yt-dlp as unsupported).
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg nodejs curl ca-certificates && \
+    apt-get install -y --no-install-recommends ffmpeg curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
+
+# JS runtime for YouTube's n-challenge; with cookies, yt-dlp finds no formats without a supported one.
+COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     mv /root/.local/bin/uv /root/.local/bin/uvx /usr/local/bin/

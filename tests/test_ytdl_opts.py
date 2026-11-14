@@ -163,6 +163,7 @@ class TestBuildYdlOpts:
 
     def test_cookies_and_proxy(self, monkeypatch, tmp_path):
         dl = get_settings().download
+        (tmp_path / "c.txt").write_text("# Netscape HTTP Cookie File")  # only an existing file is passed on
         monkeypatch.setattr(dl, "cookies_file", tmp_path / "c.txt")
         monkeypatch.setattr(dl, "cookies_from_browser", "firefox")
         monkeypatch.setattr(dl, "proxy", "http://proxy:3128")

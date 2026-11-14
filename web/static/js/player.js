@@ -634,8 +634,15 @@ function bindMedia() {
   A.addEventListener("pause", () => { if (E.dual && !E.vStall && !E.switching) V.pause(); });
   A.addEventListener("seeking", () => { if (E.dual) V.currentTime = A.currentTime; });
   A.addEventListener("waiting", () => { if (E.dual) V.pause(); });
-  A.addEventListener("playing", () => { if (E.dual) { V.currentTime = A.currentTime; V.play().catch(() => {}); } });
-  V.addEventListener("waiting", () => { if (E.dual && !A.paused) { E.vStall = true; A.pause(); setLoading(true); } });
+  // Only re-seek the picture when it really drifted: seeking it on every "playing" makes it emit "waiting",
+  // which pauses the sound, which resumes... an endless stall/resume loop with the clock stuck at 0:00.
+  A.addEventListener("playing", () => {
+    if (!E.dual) return;
+    if (Math.abs(V.currentTime - A.currentTime) > 0.3) V.currentTime = A.currentTime;
+    V.play().catch(() => {});
+  });
+  // a "waiting" caused by our own seek is not a buffering stall
+  V.addEventListener("waiting", () => { if (E.dual && !A.paused && !V.seeking) { E.vStall = true; A.pause(); setLoading(true); } });
   V.addEventListener("playing", () => { if (E.dual && E.vStall) { E.vStall = false; A.play().catch(() => {}); } });
 }
 

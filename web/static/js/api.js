@@ -42,6 +42,10 @@ export const api = {
   config: () => request("GET", "/config"),
   runtime: () => request("GET", "/runtime"),
   setRuntime: (body) => request("PUT", "/runtime", body),
+  cookies: () => request("GET", "/cookies"),
+  saveCookies: (text) => request("PUT", "/cookies", { text }),
+  clearCookies: () => request("DELETE", "/cookies"),
+  testCookies: () => request("POST", "/cookies/test"),
 
   info: (url, playlist_mode = "auto") => request("POST", "/info", { url, playlist_mode }),
   search: (q, music = false, limit = 12) => request("GET", "/search" + qs({ q, music: music || undefined, limit })),

@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import tasks  # noqa: F401  — registers the Huey dispatcher with services
-from api.routers import downloads, events, info, library, stream, system
+from api.routers import cookies, downloads, events, info, library, stream, system
 from configs import BASE_DIR, get_settings
 from modules import get_logger
 from modules.redis_util import validate_redis_connection
@@ -86,7 +86,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(redis.exceptions.TimeoutError, redis_down)
 
     # ── API ─────────────────────────────────────────────────────────
-    for r in (system.router, info.router, downloads.router, events.router, library.router, stream.router):
+    for r in (system.router, info.router, downloads.router, events.router, library.router, stream.router, cookies.router):
         app.include_router(r, prefix="/api")
 
     # ── frontend ────────────────────────────────────────────────────
