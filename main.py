@@ -10,6 +10,7 @@ Settings come from .env (API_HOST / API_PORT / TASK_WORKERS ...).
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 
@@ -34,14 +35,19 @@ def worker_cmd() -> list[str]:
     return [PYTHON, "-m", "huey.bin.huey_consumer", "tasks.huey", "-k", "thread", "-w", str(workers)]
 
 
+def _env(role: str) -> dict[str, str]:
+    """Child environment: LOG_ROLE names the log files (logs/api.log, logs/worker.log)."""
+    return {**os.environ, "LOG_ROLE": role}
+
+
 def main(argv: list[str]) -> int:
     mode = argv[1] if len(argv) > 1 else "dev"
     if mode == "api":
-        return subprocess.call(api_cmd())
+        return subprocess.call(api_cmd(), env=_env("api"))
     if mode == "worker":
-        return subprocess.call(worker_cmd())
+        return subprocess.call(worker_cmd(), env=_env("worker"))
     if mode == "dev":
-        procs = [subprocess.Popen(worker_cmd()), subprocess.Popen(api_cmd(reload=True))]
+        procs = [subprocess.Popen(worker_cmd(), env=_env("worker")), subprocess.Popen(api_cmd(reload=True), env=_env("api"))]
         try:
             return max(p.wait() for p in procs)
         except KeyboardInterrupt:

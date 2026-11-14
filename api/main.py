@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 import tasks  # noqa: F401  — registers the Huey dispatcher with services
 from api.routers import cookies, downloads, events, info, library, stream, system
 from configs import BASE_DIR, get_settings
-from modules import get_logger
+from modules import attach_server_logs, get_logger, log_dir
 from modules.redis_util import validate_redis_connection
 from services import ConflictError, InvalidRequestError, NotFoundError, ServiceError, UpstreamError, download_manager
 
@@ -40,11 +40,12 @@ class RevalidatingStaticFiles(StaticFiles):
 async def lifespan(app: FastAPI):
     """Startup: verify Redis, make sure the downloads dir exists, heal stale records."""
     s = get_settings()
+    attach_server_logs()  # uvicorn + access lines into logs/ (uvicorn has configured its loggers by now)
     s.download.downloads_dir.mkdir(parents=True, exist_ok=True)
     try:
         validate_redis_connection(s.redis.redis_url)
         repaired = download_manager.reconcile()
-        logger.info(f"ready — downloads in {s.download.downloads_dir} ({repaired} record(s) repaired)")
+        logger.info(f"ready — downloads in {s.download.downloads_dir} ({repaired} record(s) repaired); logs in {log_dir()}")
     except Exception as exc:
         logger.error(f"Redis unavailable at startup: {exc}")
     yield

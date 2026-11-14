@@ -37,6 +37,19 @@ A docked player plus a **floating video window** (drag by the header, resize fro
 - Play/Shuffle buttons on: search results, playlist previews (before downloading), finished playlist jobs, library folders and selections.
 - Keys: `Space/K` play · `←/→` ±5 s · `J/L` ±10 s · `↑/↓` volume · `M` mute · `F` fullscreen · `C` cycle captions · `T` video window · `N/P` next/prev · `S` shuffle · `R` repeat · `Q` queue · `< >` speed · `0–9` jump to %.
 
+## Logs
+
+Everything is written under one directory, **`./logs/`** (gitignored; in Docker `./logs` is mounted into `app` and `huey`):
+
+| File | Contents |
+|---|---|
+| `api.log` | API process: app code, uvicorn |
+| `worker.log` | Huey worker: downloads, progress lines, retries, huey itself |
+| `api.errors.log`, `worker.errors.log` | `WARNING` and above only |
+| `access.log` | One line per HTTP request |
+
+Each file rotates at 5 MB (5 backups). `LOG_ROLE` (`api` / `worker`, set by `main.py` and compose) names a process' files; plain `uvicorn …` without it writes `app.log`. Passwords, tokens and cookies are masked. The console output is unchanged (`docker compose logs -f huey`).
+
 ## Smaller things worth knowing
 
 - **Worker log lines** (`docker compose logs -f huey`): `[a1b2c3] Believer  40%  3.1 MiB/s  eta 0:12`, plus start / converting / completed (size + time) / failed. Plain lines, not tqdm: progress bars need a TTY and several parallel downloads would garble each other.
@@ -131,6 +144,7 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `TASK_RECORD_RETENTION_DAYS` | `30` | Redis records expire this long after their last change |
 | `TASK_IMMEDIATE` | `false` | Run tasks inline (tests only) |
 | `LOG_LEVEL`, `LOG_FORMAT` | `INFO`, `text` | `text` or `json` |
+| `LOG_DIR`, `LOG_TO_FILE` | `./logs`, `true` | Where the log files go; set `LOG_TO_FILE=false` for console only |
 
 ## HTTP API (prefix `/api`)
 

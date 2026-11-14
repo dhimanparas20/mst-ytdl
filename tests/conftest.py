@@ -6,6 +6,7 @@ import os
 
 os.environ.setdefault("TASK_IMMEDIATE", "true")  # Huey: inline + in-memory
 os.environ.setdefault("LOG_LEVEL", "WARNING")
+os.environ.setdefault("LOG_TO_FILE", "false")  # tests must not write into the real logs/ directory
 
 import fakeredis  # noqa: E402
 import pytest  # noqa: E402

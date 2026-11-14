@@ -25,8 +25,10 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       PYTHONPATH: /app
+      LOG_ROLE: worker
     volumes:
       - ./downloads:/app/downloads
+      - ./logs:/app/logs   # every log file of the stack lands in ./logs
       - ./cookies:/app/cookies   # put an exported cookies.txt here (see README: Cookies)
     depends_on:
       redis: { condition: service_healthy }
@@ -41,11 +43,13 @@ services:
       REDIS_URL: redis://redis:6379/0
       API_HOST: 0.0.0.0
       PYTHONPATH: /app
+      LOG_ROLE: api
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
       - ./downloads:/app/downloads
       - ./cookies:/app/cookies   # put an exported cookies.txt here (see README: Cookies)
+      - ./logs:/app/logs
     depends_on:
       redis: { condition: service_healthy }
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --proxy-headers --timeout-graceful-shutdown 2

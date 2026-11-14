@@ -77,6 +77,7 @@ Resolution: real env vars > `.env` (absolute path, CWD-independent) > field defa
 | `FastAPISettings` | `api_` | `API_HOST` (default `127.0.0.1`), `API_PORT`, `API_CORS_ORIGINS` |
 | `DownloadSettings` | `dl_` | `DL_DOWNLOADS_DIR`, `DL_TIMEZONE`, `DL_SPEED_LIMIT` (`2M`), `DL_ALLOWED_HOSTS`, `DL_COOKIES_*`, `DL_DEFAULT_FOLDER`, `DL_PLAYLIST_NUMBERING` |
 | `TaskSettings` | `task_` | `TASK_WORKERS`, `TASK_MAX_PARALLEL(_CAP)`, `TASK_RETRY_*`, `TASK_LOG_PROGRESS`, `TASK_IMMEDIATE` |
+| *(logging, not a settings class)* | – | `LOG_LEVEL`, `LOG_FORMAT`, `LOG_DIR`, `LOG_TO_FILE`, `LOG_ROLE` — read from the environment by `modules/logger.py` |
 
 Access with `get_settings()` (cached; never construct `Settings()` ad hoc). Blank `KEY=` in `.env` is treated as unset for the optional fields. In tests, mutate the nested instance with `monkeypatch.setattr(get_settings().download, "downloads_dir", path)`.
 
@@ -208,3 +209,4 @@ Rules: never inject untrusted text with `innerHTML` without `esc()`; a snapshot 
 17. **Default folder** is a runtime setting (`RuntimeSettings.default_folder`, sanitised by `RuntimeService.clean_folder`, leading dots stripped). `metadata_service.folder_for_single/playlist` apply it; an explicit per-download `folder` always wins. It is relative to the downloads root: browsers cannot expose absolute client paths.
 18. **Numbering** is per download (`DownloadOptions.numbering`, request field `numbering`, default `DL_PLAYLIST_NUMBERING`); the runner reads `ctx.options.numbering`, not the setting.
 19. **Cover art**: `library_service.cover()` returns a same-stem image or ffmpeg-extracts the embedded picture (JPEG ≤640 px) into `downloads/.covers/` (hidden, keyed by path+mtime+size, 3 ffmpeg at a time). Audio files only. The UI treats a 404 as "no cover" (icon fallback); never loop on `onerror`.
+20. **All log files live in one directory** (`logs/`, `LOG_DIR`): `<role>.log`, `<role>.errors.log` (WARNING+), `access.log`. `get_logger` adds shared `RotatingFileHandler`s; uvicorn/huey reset their own handlers at start-up, so `attach_server_logs()` is called from the API lifespan and the Huey `on_startup` hook. `LOG_ROLE` comes from `main.py` / `compose.yml`. Never log to a path outside `logs/`; tests set `LOG_TO_FILE=false` (`tests/conftest.py`). Rotation is per process, so two roles never share a file.

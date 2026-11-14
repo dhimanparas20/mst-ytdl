@@ -25,7 +25,7 @@ import time
 from huey import RedisHuey, crontab
 
 from configs import get_key_prefix, get_redis, get_redis_url, get_settings
-from modules import get_logger
+from modules import attach_server_logs, get_logger
 from services import download_manager, download_runner, set_dispatcher
 
 logger = get_logger(__name__)
@@ -64,6 +64,7 @@ def _announce_worker() -> None:
     if _announced.is_set():
         return
     _announced.set()
+    attach_server_logs()  # huey consumer output into logs/ as well
     try:
         _beat()
         download_manager.reconcile()

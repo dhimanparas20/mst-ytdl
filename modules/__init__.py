@@ -8,10 +8,12 @@ from modules.generics import (
     parse_size,
     today_str,
 )
-from modules.logger import get_logger
+from modules.logger import attach_server_logs, get_logger, log_dir
 
 __all__ = [
+    "attach_server_logs",
     "get_logger",
+    "log_dir",
     "get_timestamp",
     "human_bytes",
     "human_duration",
