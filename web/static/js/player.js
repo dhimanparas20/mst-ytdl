@@ -108,7 +108,10 @@ function seekTo(sec) {
   if (E.dual) V.currentTime = t;
 }
 
-function play() { E.master?.play().catch(() => {}); }
+function play() {
+  // a rejected play() (autoplay policy, aborted load) must not leave the UI claiming "playing"
+  E.master?.play().catch((e) => { if (e?.name !== "AbortError" && !E.vStall) { setPlaying(false); setLoading(false); } });
+}
 function pause() { E.master?.pause(); }
 export function toggle() {
   if (!E.master || !current()) return;
@@ -587,6 +590,13 @@ function startTick() {
     if (!S.seeking) renderTime();
     // keep the silent picture locked to the audio clock
     if (E.dual && !A.paused && !V.seeking && Math.abs(V.currentTime - A.currentTime) > 0.35) V.currentTime = A.currentTime;
+    // watchdog for the two-element (HD) mode: the event ping-pong between picture and sound can deadlock
+    // (picture stalls → sound paused → picture paused by the sound's "waiting" → nobody resumes).
+    if (E.dual && !E.switching) {
+      if (E.vStall && V.readyState >= 3) { E.vStall = false; V.play().catch(() => {}); A.play().catch(() => {}); }
+      else if (E.vStall && V.paused) V.play().catch(() => {});
+      else if (!E.vStall && !A.paused && V.paused && V.readyState >= 2 && !V.seeking && !V.ended) V.play().catch(() => {});
+    }
     tickSleep();
   }, 250);
 }
