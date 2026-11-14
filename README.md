@@ -62,6 +62,17 @@ Open <http://127.0.0.1:8000>. API docs: <http://127.0.0.1:8000/docs>.
 
 Everything in containers: `docker compose up -d --build` (Redis + worker + API, downloads mounted at `./downloads`); `docker compose down` stops it all. For local dev with `uv run`, start only Redis: `docker compose up -d redis`.
 
+## Cookies (fixes "Sign in to confirm you're not a bot")
+
+YouTube sometimes blocks an IP that makes many requests; every lookup (downloads **and** the player) then fails with that message. Give yt-dlp your logged-in browser's cookies:
+
+| Setting | Works where | How |
+|---|---|---|
+| `DL_COOKIES_FROM_BROWSER=chrome` (or `firefox`, `edge`) | Only when the app runs **on your machine** (`uv run`), **not in Docker** (the container cannot see your browser profile) | Set it in `.env`, restart |
+| `DL_COOKIES_FILE=<path to an exported cookies.txt>` | Everywhere, **including Docker** if the file is mounted into the container | see below |
+
+**Docker:** 1) In a browser where you are logged in to YouTube, install a "cookies.txt" exporter extension (e.g. *Get cookies.txt LOCALLY*), open youtube.com and export in **Netscape format**. 2) Save it as `./cookies/cookies.txt` (compose mounts `./cookies` at `/app/cookies`; the folder is gitignored). 3) In `.env` set `DL_COOKIES_FILE=/app/cookies/cookies.txt`. 4) `docker compose up -d --build`. Tip: use a throw-away Google account — heavy automated use can get an account flagged — and re-export when cookies expire. Never commit or share the file.
+
 ## Architecture
 
 ```

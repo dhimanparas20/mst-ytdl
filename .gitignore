@@ -21,3 +21,4 @@ logs/
 *.log
 .omc/
 .idea/
+cookies/

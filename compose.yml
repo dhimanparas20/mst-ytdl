@@ -27,6 +27,7 @@ services:
       PYTHONPATH: /app
     volumes:
       - ./downloads:/app/downloads
+      - ./cookies:/app/cookies   # put an exported cookies.txt here (see README: Cookies)
     depends_on:
       redis: { condition: service_healthy }
     command: huey_consumer tasks.huey -k thread -w ${TASK_WORKERS:-6}
@@ -44,6 +45,7 @@ services:
       - "${API_PORT:-8000}:8000"
     volumes:
       - ./downloads:/app/downloads
+      - ./cookies:/app/cookies   # put an exported cookies.txt here (see README: Cookies)
     depends_on:
       redis: { condition: service_healthy }
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --proxy-headers --timeout-graceful-shutdown 2
