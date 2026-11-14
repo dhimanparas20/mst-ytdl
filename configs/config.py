@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -77,6 +78,7 @@ class DownloadSettings(BaseSettings):
     js_runtime: str = "auto"  # auto | deno | node | bun | quickjs
     cookies_file: Path | None = None
     cookies_from_browser: str | None = None
+    default_folder: str | None = None  # base folder inside downloads/ (runtime-adjustable in the UI)
     proxy: str | None = None
     allowed_hosts: list[str] = [
         "youtube.com",
@@ -109,7 +111,7 @@ class DownloadSettings(BaseSettings):
         return parse_size(v)
 
     @field_validator(
-        "ffmpeg_path", "cookies_file", "cookies_from_browser", "proxy", mode="before"
+        "ffmpeg_path", "cookies_file", "cookies_from_browser", "proxy", "default_folder", mode="before"
     )
     @classmethod
     def _blank_is_none(cls, v):
@@ -127,6 +129,7 @@ class TaskSettings(BaseSettings):
     retry_delay: int = 10
     record_retention_days: int = 30
     immediate: bool = False  # inline execution + in-memory storage (tests)
+    log_progress: Literal["off", "milestones", "verbose"] = "milestones"  # progress lines in the worker log
 
     model_config = SettingsConfigDict(env_prefix="task_", **_COMMON)
 

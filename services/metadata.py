@@ -29,6 +29,7 @@ from modules.ytdlp_util import (
     video_url,
 )
 from services.errors import InvalidRequestError
+from services.runtime import runtime_service
 from services.ytdl_opts import base_extract_opts, friendly_error
 
 logger = get_logger(__name__)
@@ -103,17 +104,22 @@ class MetadataService:
         return Target(parsed=parsed, kind=kind, url=normalize_url(parsed, kind is JobKind.PLAYLIST))
 
     def folder_for_single(self, override: str | None = None) -> str:
-        """Single downloads go into today's date folder (or the override)."""
+        """Single downloads go into the override, else the default base folder, else today's date folder."""
         if override:
             return sanitize_relpath(override)  # nested names like "Music/Rock" are allowed
+        base = runtime_service.get().default_folder
+        if base:
+            return base
         dl = get_settings().download
         return today_str(dl.timezone, dl.date_folder_format)
 
     def folder_for_playlist(self, title: str, override: str | None = None) -> str:
-        """Playlists go into a folder named after the playlist."""
+        """Playlists go into the override, else a folder named after the playlist (inside the base folder, if set)."""
         if override:
             return sanitize_relpath(override, fallback="playlist")
-        return sanitize_filename(title, fallback="playlist")  # a title's "/" is text, not nesting
+        name = sanitize_filename(title, fallback="playlist")  # a title's "/" is text, not nesting
+        base = runtime_service.get().default_folder
+        return f"{base}/{name}" if base else name
 
     # ── network (yt-dlp) ────────────────────────────────────────────
 

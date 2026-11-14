@@ -40,7 +40,8 @@ export const fileTrack = (e) => ({
   kind: "file", key: `file:${e.path}`, path: e.path, video: isVideoName(e.path),
   title: (e.title || e.name || e.path.split("/").pop()).replace(/\.[a-z0-9]{2,4}$/i, ""),
   artist: e.artist || (e.path.includes("/") ? e.path.split("/").slice(-2, -1)[0] : "Library"),
-  thumb: e.thumb || null, duration: e.duration || null,
+  // audio files: the cover embedded in the tags (404 → the UI falls back to the note icon)
+  thumb: e.thumb || (isVideoName(e.path) ? null : api.libCoverUrl(e.path)), duration: e.duration || null,
 });
 
 // ───────────────────────── state ─────────────────────────
@@ -432,6 +433,7 @@ function renderTrack(animate = false) {
   $("#vwin-title").textContent = t.title;
   if (animate) for (const el of [title, sub]) { el.classList.remove("swap"); void el.offsetWidth; el.classList.add("swap"); }
   const img = $("#mp-thumb");
+  img.onerror = () => { if (t.thumb) { t.thumb = null; renderTrack(); } };   // no cover: icon instead
   if (t.thumb) { img.src = t.thumb; img.hidden = false; } else img.hidden = true;
   $("#mp-art-fallback").hidden = !!t.thumb;
   const amb = $("#mp-ambient");
@@ -560,7 +562,7 @@ function renderQueue() {
   ul.innerHTML = S.queue.map((t, i) => `
     <li class="${i === S.index ? "now" : ""}" data-i="${i}" draggable="true" style="animation-delay:${Math.min(i, 12) * 18}ms">
       <span class="q-h" title="Drag to reorder"><i class="bi bi-grip-vertical"></i></span>
-      ${t.thumb ? `<img class="q-i" src="${esc(t.thumb)}" alt="" loading="lazy">` : `<span class="q-i">${i === S.index ? '<i class="bi bi-soundwave"></i>' : i + 1}</span>`}
+      ${t.thumb ? `<img class="q-i" src="${esc(t.thumb)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'q-i',textContent:'♪'}))">` : `<span class="q-i">${i === S.index ? '<i class="bi bi-soundwave"></i>' : i + 1}</span>`}
       <span class="truncate-1">${i === S.index ? '<i class="bi bi-soundwave me-1"></i>' : ""}${esc(t.title)}</span>
       <span class="q-k">${t.kind === "yt" ? "YouTube" : t.video ? "video" : "file"}</span>
       <button class="btn-icon sm" data-rm="${i}" aria-label="Remove from queue"><i class="bi bi-x-lg"></i></button>

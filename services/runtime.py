@@ -22,12 +22,20 @@ from typing import Any
 from configs import get_key_prefix, get_redis, get_settings
 from models import RuntimeSettings
 from modules.redis_util import decode_hash, encode_hash
+from modules.ytdlp_util import sanitize_relpath
 
 SLOT_TTL_S = 45  # heartbeat window; workers refresh every ~10s
 
 
 class RuntimeService:
     """Read/write runtime-adjustable settings. Singleton: ``runtime_service``."""
+
+    @staticmethod
+    def clean_folder(value: str | None) -> str | None:
+        """Sanitise a user-chosen base folder (relative, no traversal, no hidden/dot segments)."""
+        clean = sanitize_relpath(value, fallback="")
+        parts = [p for p in clean.split("/") if p and not p.startswith(".")]
+        return "/".join(parts) or None
 
     @property
     def key(self) -> str:
@@ -40,13 +48,15 @@ class RuntimeService:
         cap = s.task.max_parallel_cap
         max_parallel = int(stored.get("max_parallel") or s.task.max_parallel)
         speed = stored["speed_limit"] if "speed_limit" in stored else s.download.speed_limit
+        folder = stored["default_folder"] if "default_folder" in stored else s.download.default_folder
         return RuntimeSettings(
             max_parallel=max(1, min(max_parallel, cap)),
             speed_limit=speed or None,
+            default_folder=self.clean_folder(folder),
         )
 
     def update(
-        self, *, max_parallel: int | None = None, speed_limit: Any = "unset"
+        self, *, max_parallel: int | None = None, speed_limit: Any = "unset", default_folder: Any = "unset"
     ) -> RuntimeSettings:
         """
         Change runtime settings.
@@ -55,6 +65,8 @@ class RuntimeService:
             max_parallel: new soft limit (clamped to ``1..TASK_MAX_PARALLEL_CAP``).
             speed_limit: bytes/sec per download; ``None`` removes the cap;
                 the default sentinel leaves it unchanged.
+            default_folder: base folder inside downloads/ (sanitised; ``None`` / ``""`` = none);
+                the default sentinel leaves it unchanged.
         """
         patch: dict[str, Any] = {}
         if max_parallel is not None:
@@ -62,6 +74,8 @@ class RuntimeService:
             patch["max_parallel"] = max(1, min(int(max_parallel), cap))
         if speed_limit != "unset":
             patch["speed_limit"] = int(speed_limit) if speed_limit else None
+        if default_folder != "unset":
+            patch["default_folder"] = self.clean_folder(default_folder)
         if patch:
             get_redis().hset(self.key, mapping=encode_hash(patch))
         return self.get()

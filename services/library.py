@@ -8,10 +8,12 @@ symlink tricks) — the API never touches the filesystem with a raw string.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import re
 import shutil
 import subprocess
+import threading
 import zipfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -28,6 +30,12 @@ _PARTIAL_SUFFIXES = (".part", ".ytdl", ".temp")
 
 _SUB_STREAM = re.compile(r"Stream #0:(\d+)(?:\[0x[0-9a-fA-F]+\])?(?:\((\w+)\))?: Subtitle: (\w+)")
 _SRT_TIME = re.compile(r"(\d{2}:\d{2}:\d{2}),(\d{3})")
+
+
+_COVER_AUDIO = frozenset({".mp3", ".m4a", ".aac", ".opus", ".flac", ".ogg", ".wav"})
+_COVER_SIDECAR = (".jpg", ".jpeg", ".png", ".webp")
+_COVER_MAX_PX = 640
+_cover_gate = threading.BoundedSemaphore(3)  # a library page asks for many covers at once; ffmpeg runs 3 at a time
 
 
 def _hidden(name: str) -> bool:
@@ -168,6 +176,54 @@ class LibraryService:
                 lang = p.stem[len(f.stem):].strip(". ") or "und"
                 found.append(SubtitleSource(id=f"side:{p.name}", lang=lang, label=p.name, source="sidecar"))
         return found
+
+    def cover(self, rel: str) -> tuple[bytes, str]:
+        """
+        Album art of a downloaded audio file as ``(image bytes, media type)``.
+
+        Looks for a same-named image next to the file (yt-dlp's thumbnail), then extracts the cover
+        embedded in the tags with ffmpeg (downscaled JPEG, cached under ``downloads/.covers``).
+
+        Raises:
+            NotFoundError: the file has no cover (or is not audio).
+        """
+        f = self.get_file(rel)
+        if f.suffix.lower() not in _COVER_AUDIO:
+            raise NotFoundError("No cover for this file type")
+        for ext in _COVER_SIDECAR:
+            side = f.with_suffix(ext)
+            if side.is_file() and side.stat().st_size > 0:
+                return side.read_bytes(), {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                                           ".webp": "image/webp"}[ext]
+        st = f.stat()
+        key = hashlib.sha1(f"{rel}|{st.st_mtime_ns}|{st.st_size}".encode()).hexdigest()[:20]
+        cache = self.root / ".covers"
+        hit, none = cache / f"{key}.jpg", cache / f"{key}.none"
+        if hit.is_file():
+            return hit.read_bytes(), "image/jpeg"
+        if none.is_file():
+            raise NotFoundError("No embedded cover")
+        ffmpeg = get_ffmpeg_path()
+        if not ffmpeg:
+            raise InvalidRequestError("ffmpeg is not available")
+        scale = f"scale='min({_COVER_MAX_PX},iw)':-2"
+        with _cover_gate:
+            try:
+                r = subprocess.run(
+                    [ffmpeg, "-v", "error", "-i", str(f), "-map", "0:v:0", "-vf", scale, "-frames:v", "1",
+                     "-c:v", "mjpeg", "-q:v", "4", "-f", "image2pipe", "-"],
+                    capture_output=True, timeout=30,
+                )
+            except (subprocess.SubprocessError, OSError) as exc:
+                raise InvalidRequestError(f"Could not read the cover: {exc}") from exc
+        try:
+            cache.mkdir(parents=True, exist_ok=True)
+            (hit if (r.returncode == 0 and r.stdout) else none).write_bytes(r.stdout if r.returncode == 0 else b"")
+        except OSError:
+            pass  # caching is best-effort
+        if r.returncode != 0 or not r.stdout:
+            raise NotFoundError("No embedded cover")
+        return r.stdout, "image/jpeg"
 
     def subtitle_vtt(self, rel: str, track_id: str) -> str:
         """One subtitle track of a downloaded video as WebVTT (``track_id`` from :meth:`subtitle_sources`)."""

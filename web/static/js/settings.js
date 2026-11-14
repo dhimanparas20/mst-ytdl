@@ -92,6 +92,17 @@ async function clearCookies(btn) {
   catch (e) { toast(e.detail || e.message, "err"); }
 }
 
+// ── default download folder ──
+async function toggleFolderPicker() {
+  const box = $("#s-folder-pick");
+  if (!box.hidden) { box.hidden = true; return; }
+  let list = [];
+  try { list = await api.libFolders(); } catch { /* empty */ }
+  const item = (value, label, icon) => `<button type="button" class="btn-ghost sm w-100 text-start" data-f="${esc(value)}" style="justify-content:flex-start"><i class="bi bi-${icon}"></i><span class="truncate-1">${esc(label)}</span></button>`;
+  box.innerHTML = item("", "downloads/ (date & playlist folders)", "house") + list.map((f) => item(f, f, "folder2")).join("");
+  box.hidden = false;
+}
+
 async function openSettings() {
   const modal = bootstrap.Modal.getOrCreateInstance($("#settings-modal"));
   modal.show();
@@ -103,6 +114,9 @@ async function openSettings() {
     slider.value = rt.max_parallel;
     setText($("#s-par-val"), String(rt.max_parallel));
     setText($("#s-workers"), String(c.workers));
+    $("#s-folder").value = rt.default_folder || "";
+    $("#s-folder-pick").hidden = true;
+    setText($("#s-root"), c.downloads_dir ? c.downloads_dir.replace(/[\\/]+$/, "") + "/" : "downloads/");
     if (rt.speed_limit) {
       const mb = rt.speed_limit >= 1048576 && rt.speed_limit % 1048576 === 0;
       $("#s-speed-unit").value = mb ? "1048576" : "1024";
@@ -117,8 +131,9 @@ async function save(btn) {
     const par = Number($("#s-par").value);
     const raw = Number($("#s-speed").value);
     const limit = raw > 0 ? Math.round(raw * Number($("#s-speed-unit").value)) : null;
-    const rt = await withBusy(btn, () => api.setRuntime({ max_parallel: par, speed_limit: limit }));
+    const rt = await withBusy(btn, () => api.setRuntime({ max_parallel: par, speed_limit: limit, default_folder: $("#s-folder").value.trim() || null }));
     showRuntime(rt);
+    window.dispatchEvent(new CustomEvent("folders-changed"));
     toast("Settings applied — new downloads use them immediately.", "ok", { ms: 3000 });
     bootstrap.Modal.getInstance($("#settings-modal"))?.hide();
   } catch (e) { toast(e.detail || e.message, "err"); }
@@ -129,6 +144,11 @@ export function initSettings() {
   $("#health-pill").addEventListener("click", openSettings);
   $("#s-par").addEventListener("input", (e) => setText($("#s-par-val"), e.target.value));
   $("#s-save").addEventListener("click", (e) => save(e.currentTarget));
+  $("#s-folder-browse").addEventListener("click", toggleFolderPicker);
+  $("#s-folder-pick").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-f]");
+    if (b) { $("#s-folder").value = b.dataset.f; $("#s-folder-pick").hidden = true; }
+  });
   $("#ck-open").addEventListener("click", openCookies);
   $("#ck-save").addEventListener("click", (e) => saveCookies(e.currentTarget));
   $("#ck-clear").addEventListener("click", (e) => clearCookies(e.currentTarget));

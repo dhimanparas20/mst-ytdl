@@ -59,7 +59,7 @@ function render() {
     const sel = selected.has(e.path);
     return `<div class="lib-item glass lift ${sel ? "selected" : ""} ${playingKey === `file:${e.path}` ? "is-playing" : ""}" data-i="${i}" data-key="file:${esc(e.path)}" style="animation-delay:${Math.min(i, 14) * 30}ms" tabindex="0">
       <span class="sel-box" data-a="select" role="checkbox" aria-checked="${sel}" aria-label="Select"><i class="bi bi-check-lg"></i></span>
-      <div class="lib-ico ${cls}"><i class="bi bi-${icon}"></i></div>
+      <div class="lib-ico ${cls}">${AUDIO.has(e.ext) && !e.is_dir ? `<img src="${esc(api.libCoverUrl(e.path))}" alt="" loading="lazy" onerror="this.remove()">` : ""}<i class="bi bi-${icon}"></i></div>
       <div style="min-width:0">
         <div class="lib-name clamp-2">${esc(e.name)}</div>
         <div class="lib-sub">${e.is_dir ? `${e.files} file${e.files === 1 ? "" : "s"} · ` : ""}${fmtBytes(e.size)} · ${fmtDate(e.modified)}</div>

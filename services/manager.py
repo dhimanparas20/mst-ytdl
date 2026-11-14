@@ -79,6 +79,7 @@ class DownloadManager:
                 subtitle_langs=req.subtitle_langs,
                 speed_limit=req.speed_limit,
                 overwrite=req.overwrite,
+                numbering=dl.playlist_numbering if req.numbering is None else req.numbering,
             )
         except (ValidationError, ValueError) as exc:
             detail = exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else str(exc)

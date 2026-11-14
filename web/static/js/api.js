@@ -65,6 +65,7 @@ export const api = {
   streamUrl: (videoId, formatId) => `/api/stream/${encodeURIComponent(videoId)}/media?format=${encodeURIComponent(formatId)}`,
   streamSubsUrl: (videoId, lang, auto) => `/api/stream/${encodeURIComponent(videoId)}/subs?lang=${encodeURIComponent(lang)}&auto=${!!auto}`,
   libSubtitles: (path) => request("GET", "/library/subtitles" + qs({ path })),
+  libCoverUrl: (path) => "/api/library/cover" + qs({ path }),
   libSubtitleUrl: (path, track) => "/api/library/subtitle" + qs({ path, track }),
 
   library: (path = "") => request("GET", "/library" + qs({ path })),

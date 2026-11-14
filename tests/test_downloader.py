@@ -39,10 +39,10 @@ from tests.fakes import FakeYDL, make_download_error, wait_for
 PL_STEPS = 10
 
 
-def make(fmt=F.MP3, *, kind=JobKind.SINGLE, folder="2026-01-01", index=1, title="", playlist_size=0, token="tok1", quality="best", overwrite=False, **jobkw):
+def make(fmt=F.MP3, *, kind=JobKind.SINGLE, folder="2026-01-01", index=1, title="", playlist_size=0, token="tok1", quality="best", overwrite=False, numbering=True, **jobkw):
     """Persist a job + one queued item and return (item_id, token)."""
     job = DownloadJob(job_id="job1", url="https://www.youtube.com/watch?v=abc123DEF45", kind=kind, folder=folder,
-                      options=DownloadOptions(format=fmt, quality=quality, overwrite=overwrite), total_items=1, playlist_size=playlist_size, **jobkw)
+                      options=DownloadOptions(format=fmt, quality=quality, overwrite=overwrite, numbering=numbering), total_items=1, playlist_size=playlist_size, **jobkw)
     store.create_job(job)
     item = DownloadItem(item_id="it1", job_id="job1", index=index, url=job.url, title=title, token=token)
     store.add_items([item])
@@ -201,11 +201,23 @@ class TestNumbering:
         runner.run(iid, tok)
         assert final_file(downloads_dir).exists()
 
-    def test_numbering_can_be_disabled(self, downloads_dir, monkeypatch):
-        monkeypatch.setattr(get_settings().download, "playlist_numbering", False)
-        iid, tok = make(kind=JobKind.PLAYLIST, index=2, playlist_size=9, folder="Mix")
+    def test_numbering_can_be_disabled_per_download(self, downloads_dir):
+        iid, tok = make(kind=JobKind.PLAYLIST, index=2, playlist_size=9, folder="Mix", numbering=False)
         runner.run(iid, tok)
         assert (downloads_dir / "Mix" / "Fake Song.mp3").exists()
+        assert not (downloads_dir / "Mix" / "02 - Fake Song.mp3").exists()
+
+    def test_request_default_follows_the_env_setting(self, monkeypatch):
+        from models import DownloadRequest
+        from services import download_manager
+
+        req = DownloadRequest(urls=["https://www.youtube.com/watch?v=abc123DEF45"])
+        assert download_manager.resolve_options(req).numbering is True
+        monkeypatch.setattr(get_settings().download, "playlist_numbering", False)
+        assert download_manager.resolve_options(req).numbering is False
+        # an explicit choice from the UI wins over the env default
+        on = DownloadRequest(urls=req.urls, numbering=True)
+        assert download_manager.resolve_options(on).numbering is True
 
 
 # ───────────────────────── progress ─────────────────────────

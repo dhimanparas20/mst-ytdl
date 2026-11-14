@@ -48,3 +48,10 @@ def library_subtitles(path: str) -> list[SubtitleSource]:
 def library_subtitle(path: str, track: str = Query(..., max_length=300)) -> Response:
     """One subtitle track of a downloaded video as WebVTT."""
     return Response(library_service.subtitle_vtt(path, track), media_type="text/vtt; charset=utf-8")
+
+
+@router.get("/library/cover")
+def library_cover(path: str = Query(..., max_length=1000)) -> Response:
+    """Album art of a downloaded audio file (404 when it has none)."""
+    data, media_type = library_service.cover(path)
+    return Response(data, media_type=media_type, headers={"Cache-Control": "private, max-age=86400"})

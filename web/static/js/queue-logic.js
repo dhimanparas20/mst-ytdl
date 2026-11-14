@@ -149,3 +149,15 @@ export function resizeFromCorner(start, corner, dx, minW, maxW) {
   const grow = corner.endsWith("r") ? dx : -dx;
   return Math.min(Math.max(start.w + grow, minW), maxW);
 }
+
+// ───────────── session speed stats ─────────────
+
+/** Fold one speed sample (bytes/s) into ``{sum, n, peak}``; idle samples (0) are ignored, so the average is "while downloading". */
+export function addSpeedSample(stats, speed) {
+  const st = stats && Number.isFinite(stats.n) ? stats : { sum: 0, n: 0, peak: 0 };
+  if (!(speed > 0)) return st;
+  return { sum: st.sum + speed, n: st.n + 1, peak: Math.max(st.peak, speed) };
+}
+
+/** Average speed of a stats object (0 when nothing was downloaded yet). */
+export const speedAverage = (stats) => (stats && stats.n ? stats.sum / stats.n : 0);

@@ -30,7 +30,7 @@ from yt_dlp.utils import DownloadCancelled
 
 from configs import get_ffmpeg_path, get_settings
 from models import ControlAction, DownloadItem, DownloadJob, DownloadStatus, JobKind
-from modules import get_logger, new_id
+from modules import get_logger, human_bytes, human_duration, new_id
 from modules.ytdlp_util import remove_partial_files
 from services.dispatch import get_dispatcher
 from services.runtime import runtime_service, slot_limiter
@@ -54,6 +54,37 @@ _PP_LABELS = {
 }
 _VIDEO_WEIGHT = 0.9 # share of a video+audio job's progress carried by the video stream
 _CHECK_INTERVAL = 0.5  # seconds between control checks / progress writes
+#: TASK_LOG_PROGRESS → (percent step, max seconds between lines)
+_LOG_STEPS = {"milestones": (10.0, 10.0), "verbose": (5.0, 5.0)}
+
+
+def progress_log_due(mode: str, pct: float, last_pct: float, now: float, last_t: float) -> bool:
+    """
+    Should a progress line be logged now? (pure; ``mode`` is ``TASK_LOG_PROGRESS``)
+
+    Args:
+        mode: ``off`` | ``milestones`` | ``verbose``.
+        pct: current overall percent (0..100).
+        last_pct: percent at the previous line (negative = none yet).
+        now / last_t: monotonic seconds now / at the previous line.
+    """
+    step = _LOG_STEPS.get(mode)
+    if step is None:
+        return False
+    pct_step, max_gap = step
+    return last_pct < 0 or pct - last_pct >= pct_step or now - last_t >= max_gap
+
+
+def progress_line(tag: str, title: str, pct: float, speed: float | None, eta: float | None, stage: str) -> str:
+    """One worker-log line: ``[a1b2c3] Title  40%  3.1 MB/s  eta 12s  (video)``."""
+    bits = [f"[{tag}] {title[:60] or '…'}", f"{pct:3.0f}%"]
+    if speed:
+        bits.append(f"{human_bytes(speed)}/s")
+    if eta:
+        bits.append(f"eta {human_duration(eta)}")
+    if stage not in ("downloading", ""):
+        bits.append(f"({stage})")
+    return "  ".join(bits)
 _HEARTBEAT_INTERVAL = 10.0
 
 
@@ -88,6 +119,14 @@ class _Ctx:
         self.bytes_prev = 0
         self.last_check = 0.0
         self.last_write = 0.0
+        self.started = time.monotonic()
+        self.last_log_pct = -1.0
+        self.last_log_t = 0.0
+
+    @property
+    def tag(self) -> str:
+        """Short id for log lines (parallel downloads interleave in one log)."""
+        return self.item.item_id[:6]
 
 
 class _Heartbeat(threading.Thread):
@@ -226,7 +265,7 @@ class DownloadRunner:
         ctx.tmp_dir.mkdir(parents=True, exist_ok=True)
 
         prefix = ""
-        if job.kind is JobKind.PLAYLIST and dl.playlist_numbering:
+        if job.kind is JobKind.PLAYLIST and ctx.options.numbering:
             width = max(2, len(str(max(job.playlist_size, job.total_items, item.index))))
             prefix = f"{item.index:0{width}d} - "
 
@@ -248,6 +287,9 @@ class DownloadRunner:
             ctx.info = info or {}
             self._apply_metadata(ctx, ctx.info)
             self._check(ctx, force=True)
+        if get_settings().task.log_progress != "off":
+            title = ctx.info.get("title") or ctx.item.title or ctx.item.url
+            logger.info(f"[{ctx.tag}] start  {title[:70]}  ({ctx.options.format.value} → {job.folder}/)")
             if ctx.info.get("is_live") or ctx.info.get("live_status") == "is_live":
                 raise RuntimeError("Live streams are not supported")
             existing = None if ctx.options.overwrite else self._existing_output(ydl, ctx, prefix)
@@ -326,7 +368,8 @@ class DownloadRunner:
         )
         self._drop_tmp(ctx)
         if done:
-            logger.success(f"completed {ctx.item.title or item_id} → {filepath}")
+            took = human_duration(time.monotonic() - ctx.started)
+            logger.success(f"completed [{ctx.tag}] {ctx.item.title or item_id} → {filepath}  ({human_bytes(final.stat().st_size)} in {took})")
         return "completed"
 
     def _on_interrupted(self, ctx: _Ctx, action: str) -> str:
@@ -479,11 +522,18 @@ class DownloadRunner:
             eta=d.get("eta"),
             stage=stage,
         )
+        shown = round(min(overall, 99.5), 1)
+        if progress_log_due(get_settings().task.log_progress, shown, ctx.last_log_pct, now, ctx.last_log_t):
+            ctx.last_log_pct, ctx.last_log_t = shown, now
+            title = ctx.info.get("title") or ctx.item.title or ""
+            logger.info(progress_line(ctx.tag, title, shown, d.get("speed"), d.get("eta"), stage))
 
     def _on_postprocess(self, ctx: _Ctx, d: dict[str, Any]) -> None:
         if d.get("status") != "started":
             return
         label = _PP_LABELS.get(d.get("postprocessor", ""), d.get("postprocessor", "processing"))
+        if get_settings().task.log_progress != "off":
+            logger.info(f"[{ctx.tag}] {label}…")
         job_store.transition_item(
             ctx.item.item_id,
             _RUNNING,

@@ -37,6 +37,14 @@ A docked player plus a **floating video window** (drag by the header, resize fro
 - Play/Shuffle buttons on: search results, playlist previews (before downloading), finished playlist jobs, library folders and selections.
 - Keys: `Space/K` play · `←/→` ±5 s · `J/L` ±10 s · `↑/↓` volume · `M` mute · `F` fullscreen · `C` cycle captions · `T` video window · `N/P` next/prev · `S` shuffle · `R` repeat · `Q` queue · `< >` speed · `0–9` jump to %.
 
+## Smaller things worth knowing
+
+- **Worker log lines** (`docker compose logs -f huey`): `[a1b2c3] Believer  40%  3.1 MiB/s  eta 0:12`, plus start / converting / completed (size + time) / failed. Plain lines, not tqdm: progress bars need a TTY and several parallel downloads would garble each other.
+- **Speed tile**: shows the live speed plus **average** (only while downloading) and **peak** for this browser session (↺ resets).
+- **Default download folder**: Settings → *Default download folder* (Browse lists existing folders or type a new one). Singles go straight into it, playlists into `<folder>/<Playlist name>`; a folder typed in the composer still wins. A browser cannot open a native file explorer for a server path; move the whole root with `DL_DOWNLOADS_DIR` (Docker: the compose volume).
+- **Filename numbering**: Options → *Number playlist tracks*. Off = `Title.mp3` instead of `01 - Title.mp3`. The server default is `DL_PLAYLIST_NUMBERING`.
+- **Album art in the player**: covers embedded in your files (and `Title.jpg` next to them) are served by `GET /api/library/cover` and shown in the dock, queue and library list.
+
 ## Download management
 
 Failed / paused / cancelled / finished downloads each have their own filter and a contextual bar (*Retry all · Restart all · Remove all* …). Per item: **Retry** (continue from the partial file), **Restart / replace** (fresh download that overwrites the old file only once it succeeds), **Remove**. **Select** mode gives a multi-select bar (pause, resume, retry, restart, cancel, remove, remove + files). Library: multi-select → play, queue, ZIP, **move to folder**, delete; rename files/folders. Custom destination folder per download (nested like `Music/Rock`, suggestions from existing folders).
@@ -115,6 +123,9 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `DL_COOKIES_FILE`, `DL_COOKIES_FROM_BROWSER`, `DL_PROXY` | – | Age-gated / member content, proxies |
 | `DL_ALLOWED_HOSTS` | YouTube hosts | URL allow-list |
 | `TASK_WORKERS` | `6` | Consumer threads (hard parallel ceiling) |
+| `TASK_LOG_PROGRESS` | `milestones` | Worker-log progress lines (`docker logs`): `off` · `milestones` (every 10 % / 10 s) · `verbose` (5 % / 5 s) |
+| `DL_DEFAULT_FOLDER` | – | Base folder inside `downloads/` for new downloads (also settable live in Settings) |
+| `DL_PLAYLIST_NUMBERING` | `true` | Default for the “Number playlist tracks” switch (`01 - Title`); off = plain `Title` |
 | `TASK_MAX_PARALLEL` / `TASK_MAX_PARALLEL_CAP` | `3` / `12` | Live parallel limit default / its maximum |
 | `TASK_RETRY_COUNT` / `TASK_RETRY_DELAY` | `1` / `10` | Auto-retries for transient failures |
 | `TASK_RECORD_RETENTION_DAYS` | `30` | Redis records expire this long after their last change |
@@ -133,6 +144,7 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `POST /info` · `GET /search?q=` | Preview a URL (title, qualities, playlist entries) / text search |
 | `POST /downloads/bulk` · `POST /downloads/{id}/restart` · `POST /items/{id}/restart` | Multi-select actions (`pause\|resume\|cancel\|retry\|restart\|remove\|remove-files`) / replace |
 | `GET /stream/{id}/info` · `/stream/{id}/media?format=` · `/stream/{id}/subs?lang=` | Player: qualities + subtitle tracks, ranged stream proxy, WebVTT |
+| `GET /library/cover?path=` | Album art of a downloaded audio file (embedded cover or `.jpg/.png/.webp` sidecar; 404 if none) |
 | `GET /library/subtitles` · `/library/subtitle` | Subtitle tracks of a downloaded video |
 | `POST /library/bulk-delete` · `/library/move` · `/library/rename` · `GET /library/folders` | Library bulk operations; `GET /library/zip?path=a&path=b` zips a selection |
 | `GET /cookies` · `PUT /cookies` `{text}` · `DELETE /cookies` · `POST /cookies/test` | Cookie status (flags/counts only), save pasted Netscape cookies, remove, live-test against YouTube |

@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import {
   clampWindow, fadeVolume, fmtClock, makeBag, moveItem, nextIndex, pickQuality, pickSubtitle, qualityLabel,
-  removeItem, resizeFromCorner, shuffleRest, sleepRemaining, snapWindow,
+  addSpeedSample, speedAverage, removeItem, resizeFromCorner, shuffleRest, sleepRemaining, snapWindow,
 } from "../static/js/queue-logic.js";
 
 const Q = [{ height: 1080, label: "1080p" }, { height: 720, label: "720p" }, { height: 480, label: "480p" }, { height: 360, label: "360p" }, { height: 144, label: "144p" }];
@@ -169,4 +169,20 @@ test("resizeFromCorner grows right corners with +dx and left corners with -dx, w
   assert.equal(resizeFromCorner(start, "tl", -100, 260, 900), 500);
   assert.equal(resizeFromCorner(start, "br", -999, 260, 900), 260);
   assert.equal(resizeFromCorner(start, "br", 999, 260, 900), 900);
+});
+
+// ───────── session speed stats ─────────
+test("speed stats ignore idle samples and track average + peak", () => {
+  let st = addSpeedSample(undefined, 0);
+  assert.deepEqual(st, { sum: 0, n: 0, peak: 0 });
+  assert.equal(speedAverage(st), 0);
+  st = addSpeedSample(st, 1000);
+  st = addSpeedSample(st, 0);
+  st = addSpeedSample(st, 3000);
+  assert.equal(st.n, 2);
+  assert.equal(speedAverage(st), 2000);
+  assert.equal(st.peak, 3000);
+  assert.deepEqual(addSpeedSample({ junk: true }, 5), { sum: 5, n: 1, peak: 5 });  // corrupt saved state is replaced
+  assert.equal(addSpeedSample(st, -4), st);                                       // negatives / NaN ignored
+  assert.equal(addSpeedSample(st, NaN), st);
 });

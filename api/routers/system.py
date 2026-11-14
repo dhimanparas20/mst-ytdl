@@ -69,6 +69,7 @@ def config() -> ConfigResponse:
         default_video_quality=s.download.default_video_quality,
         embed_metadata=s.download.embed_metadata,
         embed_thumbnail=s.download.embed_thumbnail,
+        playlist_numbering=s.download.playlist_numbering,
         max_parallel_cap=s.task.max_parallel_cap,
         workers=s.task.workers,
         max_playlist_items=s.download.max_playlist_items,
@@ -91,4 +92,6 @@ def put_runtime(body: RuntimeUpdate) -> RuntimeSettings:
         kwargs["max_parallel"] = body.max_parallel
     if "speed_limit" in body.model_fields_set:
         kwargs["speed_limit"] = body.speed_limit  # None / 0 → unlimited
+    if "default_folder" in body.model_fields_set:
+        kwargs["default_folder"] = body.default_folder  # None / "" → no base folder
     return runtime_service.update(**kwargs)

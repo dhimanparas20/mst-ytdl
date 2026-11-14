@@ -68,6 +68,8 @@ class RuntimeUpdate(BaseModel):
     max_parallel: int | None = Field(default=None, ge=1, le=64)
     # bytes/sec per download; send null or 0 to remove the cap
     speed_limit: int | None = Field(default=None, ge=0)
+    # base folder inside downloads/ for new downloads; send null or "" to clear
+    default_folder: str | None = Field(default=None, max_length=200)
 
 
 class HealthResponse(BaseModel):
@@ -93,6 +95,7 @@ class ConfigResponse(BaseModel):
     default_video_quality: str
     embed_metadata: bool
     embed_thumbnail: bool
+    playlist_numbering: bool
     max_parallel_cap: int
     workers: int
     max_playlist_items: int

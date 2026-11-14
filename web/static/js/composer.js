@@ -16,7 +16,7 @@ const HEIGHT_LABEL = { 1440: "1440p", 2160: "4K" };
 
 const S = {
   src: "link", kind: "audio", format: "mp3", q: { audio: "192", video: "1080" },
-  o: { thumb: true, meta: true, subs: false, langs: "en", over: false, speed: "", folder: "", plmode: "auto" },
+  o: { thumb: true, meta: true, subs: false, langs: "en", over: false, num: true, speed: "", folder: "", plmode: "auto" },
   cfg: null, urls: [], preview: null, previewFor: "", selection: new Set(), analyzing: 0, searchResults: [],
 };
 
@@ -78,6 +78,7 @@ function renderOptions() {
   $("#o-meta").checked = S.o.meta;
   $("#o-subs").checked = S.o.subs && S.kind === "video";
   $("#o-over").checked = S.o.over;
+  $("#o-num").checked = S.o.num;
   $("#o-langs").value = S.o.langs;
   $("#o-speed").value = S.o.speed;
   $("#o-folder").value = S.o.folder;
@@ -256,6 +257,7 @@ function buildBody(urls) {
     embed_metadata: S.o.meta,
     embed_thumbnail: S.o.thumb && !NO_COVER.has(S.format),
     overwrite: S.o.over,
+    numbering: S.o.num,
   };
   if (S.kind === "audio" && LOSSY.has(S.format)) body.quality = S.q.audio;
   if (S.kind === "video") {
@@ -377,7 +379,7 @@ export function focusInput() { setSource("link"); $("#url-input").focus(); }
 
 export function initComposer(cfg) {
   S.cfg = cfg;
-  S.o.thumb = cfg.embed_thumbnail; S.o.meta = cfg.embed_metadata;
+  S.o.thumb = cfg.embed_thumbnail; S.o.meta = cfg.embed_metadata; S.o.num = cfg.playlist_numbering !== false;
   const fmt = cfg.default_format;
   S.kind = cfg.audio_formats.includes(fmt) ? "audio" : "video"; S.format = fmt;
   S.q = { audio: cfg.default_audio_quality, video: cfg.default_video_quality };
@@ -411,7 +413,7 @@ export function initComposer(cfg) {
     if (rerender) renderOptions();
     savePrefs();
   });
-  bind("#o-thumb", "thumb"); bind("#o-meta", "meta"); bind("#o-subs", "subs"); bind("#o-over", "over");
+  bind("#o-thumb", "thumb"); bind("#o-meta", "meta"); bind("#o-subs", "subs"); bind("#o-over", "over"); bind("#o-num", "num");
   bind("#o-speed", "speed", "value");
   bind("#o-langs", "langs", "value", false); bind("#o-folder", "folder", "value", false);
 

@@ -75,12 +75,12 @@ Resolution: real env vars > `.env` (absolute path, CWD-independent) > field defa
 |---|---|---|
 | `RedisSettings` | – | `REDIS_URL`, `REDIS_KEY_PREFIX` |
 | `FastAPISettings` | `api_` | `API_HOST` (default `127.0.0.1`), `API_PORT`, `API_CORS_ORIGINS` |
-| `DownloadSettings` | `dl_` | `DL_DOWNLOADS_DIR`, `DL_TIMEZONE`, `DL_SPEED_LIMIT` (`2M`), `DL_ALLOWED_HOSTS`, `DL_COOKIES_*` |
-| `TaskSettings` | `task_` | `TASK_WORKERS`, `TASK_MAX_PARALLEL(_CAP)`, `TASK_RETRY_*`, `TASK_IMMEDIATE` |
+| `DownloadSettings` | `dl_` | `DL_DOWNLOADS_DIR`, `DL_TIMEZONE`, `DL_SPEED_LIMIT` (`2M`), `DL_ALLOWED_HOSTS`, `DL_COOKIES_*`, `DL_DEFAULT_FOLDER`, `DL_PLAYLIST_NUMBERING` |
+| `TaskSettings` | `task_` | `TASK_WORKERS`, `TASK_MAX_PARALLEL(_CAP)`, `TASK_RETRY_*`, `TASK_LOG_PROGRESS`, `TASK_IMMEDIATE` |
 
 Access with `get_settings()` (cached; never construct `Settings()` ad hoc). Blank `KEY=` in `.env` is treated as unset for the optional fields. In tests, mutate the nested instance with `monkeypatch.setattr(get_settings().download, "downloads_dir", path)`.
 
-**Runtime-adjustable settings** (parallel limit, speed cap) live in Redis (`P:RUNTIME`, `services/runtime.py`), layered over the `.env` defaults and clamped to `TASK_MAX_PARALLEL_CAP`. The Huey thread count (`TASK_WORKERS`) is the hard ceiling and needs a worker restart.
+**Runtime-adjustable settings** (parallel limit, speed cap, default folder) live in Redis (`P:RUNTIME`, `services/runtime.py`), layered over the `.env` defaults and clamped to `TASK_MAX_PARALLEL_CAP`. The Huey thread count (`TASK_WORKERS`) is the hard ceiling and needs a worker restart.
 
 ---
 
@@ -204,3 +204,7 @@ Rules: never inject untrusted text with `innerHTML` without `esc()`; a snapshot 
 13. Preview panes in a hidden browser tab freeze CSS animations at frame 0 (elements look transparent) — a testing artifact, not a UI bug.
 14. **Cookies / "Sign in to confirm you're not a bot"**: `DL_COOKIES_FROM_BROWSER` reads the browser profile and therefore works only when the app runs on the host (not in Docker). In Docker use `DL_COOKIES_FILE=/app/cookies/cookies.txt` (Netscape format) with `./cookies` mounted (read-write: yt-dlp saves the jar back) into `app` and `huey` (`compose.yml`; `cookies/` is gitignored). Both streaming (`services/streaming.py`) and downloads go through `ytdl_opts` so one setting covers both.
 15. **Node must be supported by yt-dlp.** Debian's `nodejs` (v20) is reported "unsupported": the n-challenge solver stays unavailable and, once cookies make yt-dlp skip the cookie-less clients, every video fails with "No video formats found". The Dockerfile copies Node 22 from `node:22-slim`. Check with `yt-dlp -v` ("JS runtimes: node-… (unsupported)").
+16. **Worker progress logging** is plain lines (`services/downloader.progress_log_due` / `progress_line`, mode `TASK_LOG_PROGRESS`), never tqdm: no TTY in `docker logs`, parallel threads would interleave bars. Each line carries `item_id[:6]`.
+17. **Default folder** is a runtime setting (`RuntimeSettings.default_folder`, sanitised by `RuntimeService.clean_folder`, leading dots stripped). `metadata_service.folder_for_single/playlist` apply it; an explicit per-download `folder` always wins. It is relative to the downloads root: browsers cannot expose absolute client paths.
+18. **Numbering** is per download (`DownloadOptions.numbering`, request field `numbering`, default `DL_PLAYLIST_NUMBERING`); the runner reads `ctx.options.numbering`, not the setting.
+19. **Cover art**: `library_service.cover()` returns a same-stem image or ffmpeg-extracts the embedded picture (JPEG ≤640 px) into `downloads/.covers/` (hidden, keyed by path+mtime+size, 3 ffmpeg at a time). Audio files only. The UI treats a 404 as "no cover" (icon fallback); never loop on `onerror`.

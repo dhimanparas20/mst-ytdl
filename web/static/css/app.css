@@ -265,6 +265,10 @@ input[type=range] { accent-color: var(--g2); width: 100%; }
 .stat .s-val { font-size: 26px; font-weight: 700; line-height: 1.15; margin-top: 4px; }
 .stat .s-unit { font-size: 13px; color: var(--muted); font-weight: 550; margin-left: 4px; }
 .stat.speed { display: flex; flex-direction: column; }
+.stat .s-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; display: flex; align-items: center; gap: 4px; }
+.stat .s-sub b { color: var(--text); font-weight: 650; }
+.stat .s-reset { margin-left: auto; background: none; border: 0; color: var(--faint); padding: 0 2px; font-size: 12px; cursor: pointer; }
+.stat .s-reset:hover { color: var(--text); }
 .stat.speed canvas { width: 100%; height: 44px; margin-top: 6px; display: block; }
 .stat[data-k="active"] .s-val { color: var(--info); }
 .stat[data-k="completed"] .s-val { color: var(--ok); }
@@ -380,6 +384,8 @@ input[type=range] { accent-color: var(--g2); width: 100%; }
 .lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
 .lib-item { padding: 14px; display: flex; gap: 12px; align-items: center; cursor: pointer; animation: fadeUp .45s var(--ease) both; }
 .lib-ico { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; font-size: 22px; flex: none; background: var(--grad-soft); border: 1px solid rgba(106, 88, 214,.25); color: var(--g2); }
+.lib-ico { position: relative; overflow: hidden; }
+.lib-ico img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .lib-ico.folder { color: var(--g1); }
 .lib-ico.video { color: var(--g3); }
 .lib-name { font-weight: 600; font-size: 14px; word-break: break-word; }

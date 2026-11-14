@@ -7,6 +7,7 @@
 import { api } from "./api.js";
 import { confirmDialog, copyText, toast, withBusy, initTooltips } from "./ui.js";
 import { fileTrack, isMediaName } from "./player.js";
+import { addSpeedSample, speedAverage } from "./queue-logic.js";
 import {
   $, $$, esc, htmlToEl, fmtBytes, fmtDuration, fmtEta, setText, setAttr, splitSpeed, tween,
 } from "./util.js";
@@ -58,6 +59,15 @@ let filter = "all";
 let firstSnapshot = true;
 const lastStatus = new Map();
 const speedHist = Array(60).fill(0);
+// average / peak speed for this browser session (survives a reload, gone when the tab closes)
+const SPEED_KEY = "mst.speedstats";
+let speedStats = { sum: 0, n: 0, peak: 0 };
+try { speedStats = addSpeedSample(JSON.parse(sessionStorage.getItem(SPEED_KEY) || "null"), 0); } catch { /* private mode */ }
+const fmtRate = (v) => (v > 0 ? `${fmtBytes(v)}/s` : "–");
+function paintSpeedStats() {
+  setText($("#v-avg"), fmtRate(speedAverage(speedStats)));
+  setText($("#v-peak"), fmtRate(speedStats.peak));
+}
 let jobsEl, emptyEl;
 let lastJobs = [];
 
@@ -480,6 +490,11 @@ function renderStats(s) {
     }
   }
   speedHist.push(s.speed || 0); speedHist.shift();
+  if (s.speed > 0) {
+    speedStats = addSpeedSample(speedStats, s.speed);
+    try { sessionStorage.setItem(SPEED_KEY, JSON.stringify(speedStats)); } catch { /* ignore */ }
+    paintSpeedStats();
+  }
   drawSpark();
   setPar(s.max_parallel);
 
@@ -672,6 +687,12 @@ export function initQueue() {
   jobsEl.addEventListener("click", onClick);
   $("#par-minus").addEventListener("click", () => changePar(-1));
   $("#par-plus").addEventListener("click", () => changePar(+1));
+  paintSpeedStats();
+  $("#speed-reset").addEventListener("click", () => {
+    speedStats = { sum: 0, n: 0, peak: 0 };
+    try { sessionStorage.removeItem(SPEED_KEY); } catch { /* ignore */ }
+    paintSpeedStats();
+  });
   $("#rt-speed").addEventListener("change", async (e) => {
     try { await api.setRuntime({ speed_limit: e.target.value ? Number(e.target.value) : null }); toast(e.target.value ? "Speed cap applied to new downloads" : "Speed cap removed", "info", { ms: 2500 }); }
     catch (err) { toast(err.detail, "err"); }

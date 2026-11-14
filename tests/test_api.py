@@ -81,7 +81,7 @@ class TestSystem:
         r = client.put("/api/runtime", json={"max_parallel": 2}).json()
         assert r["max_parallel"] == 2
         r = client.put("/api/runtime", json={"speed_limit": 500000}).json()
-        assert r == {"max_parallel": 2, "speed_limit": 500000}  # earlier change kept
+        assert r == {"max_parallel": 2, "speed_limit": 500000, "default_folder": None}  # earlier change kept
         r = client.put("/api/runtime", json={"speed_limit": None}).json()
         assert r["speed_limit"] is None and r["max_parallel"] == 2
         assert client.put("/api/runtime", json={}).json()["max_parallel"] == 2  # empty body = no-op

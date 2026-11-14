@@ -96,6 +96,7 @@
               <div class="opt"><div><div class="opt-t">Embed tags</div><div class="opt-d">Title, artist, album, chapters</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-meta"></div></div>
               <div class="opt" id="opt-subs"><div><div class="opt-t">Subtitles</div><div class="opt-d">Download and embed (video only)</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-subs"></div></div>
               <div class="px-2 pb-2" id="subs-langs" hidden><input id="o-langs" class="form-control" placeholder="Languages, e.g. en, hi, es" value="en" style="padding:8px 12px"></div>
+              <div class="opt" id="opt-num"><div><div class="opt-t">Number playlist tracks</div><div class="opt-d" id="opt-num-d">Files named “01 - Title”; off = just “Title”</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-num"></div></div>
               <div class="opt"><div><div class="opt-t">Overwrite existing</div><div class="opt-d">Re-download even if the file exists</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-over"></div></div>
               <div class="px-2 py-2">
                 <div class="field-label">Playlist handling</div>
@@ -139,6 +140,7 @@
             <div class="stat speed glass" data-k="speed">
               <div class="s-label"><i class="bi bi-speedometer2"></i>Speed</div>
               <div class="s-val mono"><span id="v-speed">0</span><span class="s-unit" id="u-speed">B/s</span></div>
+              <div class="s-sub mono" title="Average (while downloading) and highest speed this browser session">avg <b id="v-avg">–</b> · peak <b id="v-peak">–</b><button class="s-reset" id="speed-reset" type="button" aria-label="Reset speed stats" title="Reset"><i class="bi bi-arrow-counterclockwise"></i></button></div>
               <canvas id="spark" width="400" height="88"></canvas>
             </div>
             <div class="stat glass" data-k="active"><div class="s-label"><i class="bi bi-cloud-download"></i>Active</div><div class="s-val mono" id="v-active">0</div></div>
@@ -274,6 +276,13 @@
             <input id="s-speed" type="number" min="0" step="50" class="form-control" placeholder="0 = unlimited">
             <select id="s-speed-unit" class="form-select" style="width:110px"><option value="1024">KB/s</option><option value="1048576">MB/s</option></select>
           </div>
+          <div class="field-label mt-3">Default download folder</div>
+          <div class="flex gap-2">
+            <input id="s-folder" class="form-control" placeholder="Not set: date / playlist folders" autocomplete="off" spellcheck="false">
+            <button class="btn-ghost sm" id="s-folder-browse" type="button"><i class="bi bi-folder2-open"></i>Browse</button>
+          </div>
+          <div id="s-folder-pick" class="glass-in mt-2 p-1" hidden style="max-height:190px;overflow:auto;font-size:13px"></div>
+          <div class="faint mt-1" style="font-size:12px">Inside <span class="mono" id="s-root">downloads/</span>. New downloads go here unless you type a folder name in the composer. Type a new name to create one. The browser cannot open your computer's file explorer for a server folder; to move the root itself set <span class="mono">DL_DOWNLOADS_DIR</span> (Docker: the compose volume).</div>
           <hr style="border-color:var(--stroke);opacity:1;margin:22px 0 16px">
           <div class="field-label">YouTube cookies</div>
           <div class="glass-in p-3 flex items-center gap-3" style="font-size:13px">

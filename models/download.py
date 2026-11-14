@@ -43,6 +43,7 @@ class DownloadOptions(BaseModel):
     subtitle_langs: list[str] = Field(default_factory=lambda: ["en"])
     speed_limit: int | None = Field(default=None, ge=1)  # bytes/sec per download
     overwrite: bool = False  # re-download even if the output file already exists
+    numbering: bool = True  # playlist files get a "01 - " prefix (off = just the title)
 
     @field_validator("quality", mode="before")
     @classmethod
@@ -92,6 +93,7 @@ class DownloadRequest(BaseModel):
     subtitle_langs: list[str] = Field(default_factory=lambda: ["en"])
     speed_limit: int | None = Field(default=None, ge=1)
     overwrite: bool = False
+    numbering: bool | None = None  # "01 - " prefix on playlist files; None = DL_PLAYLIST_NUMBERING
     # Override the destination folder name (sanitised, relative to downloads/)
     folder: str | None = Field(default=None, max_length=120)
 
@@ -323,6 +325,7 @@ class RuntimeSettings(BaseModel):
 
     max_parallel: int = Field(ge=1)
     speed_limit: int | None = Field(default=None, ge=1)  # bytes/sec per download
+    default_folder: str | None = None  # base folder inside downloads/ for new downloads (None = date / playlist folders)
 
 
 class QueueStats(BaseModel):
