@@ -1,0 +1,51 @@
+[project]
+name = "mst-ytdl"
+version = "0.1.0"
+description = "Self-hosted YouTube / YouTube Music downloader: FastAPI + Huey + yt-dlp with a live web UI."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "colorlog>=6.12.0",
+    "fastapi>=0.115",
+    "huey>=2.5",
+    "imageio-ffmpeg>=0.8.1",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.6",
+    "redis>=5",
+    "tzdata>=2026.6",
+    "uvicorn[standard]>=0.54.0",
+    "yt-dlp[default]>=2026.10.26",
+]
+
+[dependency-groups]
+dev = [
+    "fakeredis>=2.40.0",
+    "httpx>=0.28.1",
+    "mutagen>=1.48.1",
+    "pytest>=9.2.0",
+    "ruff>=0.17.5",
+]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = [".venv", "downloads"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E501",  # long lines: docstrings / tables read better unwrapped
+    "B905",  # zip(strict=) — our zips pair equal-length redis pipeline results
+    "UP037", # quoted annotations are fine alongside `from __future__ import annotations`
+    "UP042", # `class X(str, Enum)` is the house style; we always read `.value` explicitly
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["api", "configs", "models", "modules", "services", "tasks", "tests"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra -m 'not live'"
+markers = [
+    "live: hits real YouTube and real Redis (deselect with -m 'not live')",
+]
