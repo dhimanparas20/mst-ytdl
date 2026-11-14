@@ -598,3 +598,16 @@ class TestHeartbeat:
         fake_redis.expire(slot_limiter.slot_key(holder), 1)  # would die in 1s…
         wait_for(lambda: fake_redis.ttl(slot_limiter.slot_key(holder)) > 5, timeout=3)  # …heartbeat refreshed it
         t.join(10)
+
+
+class TestSessionLifecycle:
+    """yt-dlp sessions must be closed exactly when the work is done — and never used afterwards."""
+
+    @pytest.mark.parametrize("mode", ["off", "milestones", "verbose"])
+    def test_download_completes_inside_the_session_for_every_log_mode(self, downloads_dir, monkeypatch, mode):
+        monkeypatch.setattr(get_settings().task, "log_progress", mode)
+        iid, tok = make()
+        assert runner.run(iid, tok) == "completed"          # (`off` used to skip the download entirely)
+        assert final_file(downloads_dir).exists()
+        assert all(y.closed for y in FakeYDL.instances)     # every session was closed...
+        assert FakeYDL.calls == 1                           # ...after the download ran inside it

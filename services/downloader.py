@@ -287,9 +287,11 @@ class DownloadRunner:
             ctx.info = info or {}
             self._apply_metadata(ctx, ctx.info)
             self._check(ctx, force=True)
-        if get_settings().task.log_progress != "off":
-            title = ctx.info.get("title") or ctx.item.title or ctx.item.url
-            logger.info(f"[{ctx.tag}] start  {title[:70]}  ({ctx.options.format.value} → {job.folder}/)")
+            if get_settings().task.log_progress != "off":
+                title = ctx.info.get("title") or ctx.item.title or ctx.item.url
+                logger.info(f"[{ctx.tag}] start  {title[:70]}  ({ctx.options.format.value} → {job.folder}/)")
+            # everything that talks to YouTube stays inside the `with`: leaving it closes the session, and
+            # using `ydl` afterwards silently opens a new one that is never closed (leaked sockets → EMFILE)
             if ctx.info.get("is_live") or ctx.info.get("live_status") == "is_live":
                 raise RuntimeError("Live streams are not supported")
             existing = None if ctx.options.overwrite else self._existing_output(ydl, ctx, prefix)

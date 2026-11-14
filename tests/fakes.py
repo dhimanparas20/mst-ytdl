@@ -78,16 +78,24 @@ class FakeYDL:
         FakeYDL.last_opts = opts
         FakeYDL.instances.append(self)
         self.extract_calls = 0
+        self.closed = False
 
     def __enter__(self):
         return self
 
     def __exit__(self, *exc):
+        self.closed = True
         return False
+
+    def _alive(self) -> None:
+        """Like the real YoutubeDL: using it after close() silently opens a new, never-closed HTTP session
+        (leaked sockets → "Too many open files"), so the fake makes that a hard failure."""
+        assert not self.closed, "YoutubeDL used after its `with` block closed it"
 
     # -- yt-dlp surface used by DownloadRunner --------------------------------
 
     def extract_info(self, url: str, download: bool = False, process: bool = True) -> dict:
+        self._alive()
         self.extract_calls += 1
         if FakeYDL.extract_error is not None:
             raise FakeYDL.extract_error
@@ -102,6 +110,7 @@ class FakeYDL:
         }
 
     def prepare_filename(self, info: dict, outtmpl: str | None = None) -> str:
+        self._alive()
         if outtmpl is not None:  # explicit template → no extension, like yt-dlp
             name = outtmpl.replace("%(title).150B", info["title"]).replace("%(id)s", info["id"])
             return str(Path(self.opts["paths"]["home"]) / name)
@@ -121,6 +130,7 @@ class FakeYDL:
         return self.opts.get("merge_output_format", "mp4")
 
     def process_ie_result(self, info: dict, download: bool = True) -> dict:
+        self._alive()
         with FakeYDL._lock:
             FakeYDL.calls += 1
             FakeYDL.active += 1
