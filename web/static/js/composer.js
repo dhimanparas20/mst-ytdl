@@ -17,7 +17,7 @@ const HEIGHT_LABEL = { 1440: "1440p", 2160: "4K" };
 const S = {
   src: "link", kind: "audio", format: "mp3", q: { audio: "192", video: "1080" },
   o: { thumb: true, meta: true, subs: false, langs: "en", over: false, num: true, speed: "", folder: "", plmode: "auto" },
-  cfg: null, urls: [], preview: null, previewFor: "", selection: new Set(), analyzing: 0, searchResults: [],
+  cfg: null, urls: [], preview: null, previewFor: "", selection: new Set(), analyzing: 0, searchResults: [], feed: [], playlists: [], accLoaded: false,
 };
 
 const savePrefs = () => store("mst.prefs", { kind: S.kind, format: S.format, q: S.q, o: { ...S.o, folder: "" } });
@@ -208,6 +208,11 @@ function entryHTML(e) {
     <img loading="lazy" alt="" src="${esc(e.thumbnail || "")}" onerror="this.style.visibility='hidden'">
     <span class="e-title clamp-2">${esc(e.title)}${e.uploader ? `<span class="faint"> · ${esc(e.uploader)}</span>` : ""}</span>
     <span class="e-dur mono">${e.duration ? fmtDuration(e.duration) : ""}</span>
+    ${off ? "" : `<span class="e-act">
+      <button type="button" class="btn-icon sm info" data-e-play="${e.index}" aria-label="Play" title="Play"><i class="bi bi-play-fill"></i></button>
+      <button type="button" class="btn-icon sm" data-e-cart="${e.index}" aria-label="Add to cart" title="Add to cart"><i class="bi bi-bag-plus"></i></button>
+      <button type="button" class="btn-icon sm ok" data-e-dl="${e.index}" aria-label="Download" title="Download"><i class="bi bi-download"></i></button>
+    </span>`}
   </label>`;
 }
 
@@ -245,7 +250,25 @@ function previewEntries() {
 const videoIdOf = (url) => (String(url).match(/(?:[?&]v=|youtu\.be\/|\/shorts\/)([\w-]{11})/) || [])[1] || null;
 const toCart = (entries) => window.dispatchEvent(new CustomEvent("cart-add", { detail: { entries } }));
 
+/** One track of the previewed playlist: play it (the playlist keeps playing after it), add to cart, or download just it. */
+async function onEntryAction(e) {
+  const btn = e.target.closest("[data-e-play], [data-e-cart], [data-e-dl]");
+  const idx = Number(btn.dataset.ePlay || btn.dataset.eCart || btn.dataset.eDl);
+  const entry = S.preview?.entries.find((x) => x.index === idx);
+  if (!entry) return;
+  e.preventDefault();  // the row is a <label>: do not toggle its checkbox
+  if (btn.dataset.ePlay) {
+    const avail = S.preview.entries.filter((x) => x.available);
+    window.dispatchEvent(new CustomEvent("player-play", { detail: { tracks: avail.map(ytTrack), start: avail.indexOf(entry) } }));
+  } else if (btn.dataset.eCart) {
+    toCart([entry]); btn.classList.add("added");
+  } else {
+    try { await submit([entry.url], btn); } catch (err) { toast(err.detail || err.message, "err"); }
+  }
+}
+
 function onPreviewEvent(e) {
+  if (e.target.closest("[data-e-play], [data-e-cart], [data-e-dl]")) return onEntryAction(e);
   if (e.target.closest("[data-prev-play]")) return playPreview(false);
   if (e.target.closest("[data-prev-cart]")) { const list = previewEntries(); return list.length ? toCart(list) : toast("Select at least one track first.", "info"); }
   if (e.target.closest("[data-prev-shuffle]")) return playPreview(true);
@@ -370,8 +393,14 @@ async function doSearch(e) {
   try {
     S.searchResults = await api.search(q, $("#search-music").checked);
     if (!S.searchResults.length) { host.innerHTML = `<div class="muted text-center p-3">No results.</div>`; return; }
-    host.innerHTML = S.searchResults.map((r, i) => `
-      <div class="result" data-key="yt:${esc(r.video_id)}" style="animation-delay:${i * 35}ms">
+    host.innerHTML = resultsHTML(S.searchResults);
+  } catch (err) { host.innerHTML = `<div class="job-error"><i class="bi bi-exclamation-octagon-fill"></i><span>${esc(err.detail || err.message)}</span></div>`; }
+}
+
+/** Track rows + the "play all / shuffle / cart / download all" bar — shared by search results and the home feed. */
+function resultsHTML(list) {
+  return list.map((r, i) => `
+      <div class="result" data-key="yt:${esc(r.video_id)}" style="animation-delay:${Math.min(i, 14) * 35}ms">
         <img loading="lazy" alt="" src="${esc(r.thumbnail || "")}" onerror="this.style.visibility='hidden'">
         <div style="flex:1;min-width:0">
           <div class="r-title clamp-2">${esc(r.title)}</div>
@@ -384,28 +413,29 @@ async function doSearch(e) {
         <button class="btn-ghost flex-1" data-play-all><i class="bi bi-play-circle"></i>Play all</button>
         <button class="btn-ghost flex-1" data-shuffle-all><i class="bi bi-shuffle"></i>Shuffle</button>
         <button class="btn-ghost flex-1" data-cart-all><i class="bi bi-bag-plus"></i>All to cart</button>
-        <button class="btn-ghost flex-1" data-dl-all><i class="bi bi-cloud-download"></i>Download all ${S.searchResults.length}</button></div>`;
-  } catch (err) { host.innerHTML = `<div class="job-error"><i class="bi bi-exclamation-octagon-fill"></i><span>${esc(err.detail || err.message)}</span></div>`; }
+        <button class="btn-ghost flex-1" data-dl-all><i class="bi bi-cloud-download"></i>Download all ${list.length}</button></div>`;
 }
 
-async function onResultClick(e) {
+/** Click handler for a ``.results`` list; ``list()`` returns the entries it currently shows. */
+async function onResultClick(e, list = () => S.searchResults) {
+  const items = list();
   const play = e.target.closest("[data-play]");
   const playAll = e.target.closest("[data-play-all]");
-  if (e.target.closest("[data-shuffle-all]")) { window.dispatchEvent(new CustomEvent("player-play", { detail: { tracks: S.searchResults.map(ytTrack), shuffle: true } })); return; }
+  if (e.target.closest("[data-shuffle-all]")) { window.dispatchEvent(new CustomEvent("player-play", { detail: { tracks: items.map(ytTrack), shuffle: true } })); return; }
   if (play || playAll) {
-    const tracks = S.searchResults.map(ytTrack);
+    const tracks = items.map(ytTrack);
     window.dispatchEvent(new CustomEvent("player-play", { detail: { tracks, start: play ? Number(play.dataset.play) : 0 } }));
     return;
   }
   const cartOne = e.target.closest("[data-cart]");
-  if (cartOne) { toCart([S.searchResults[+cartOne.dataset.cart]]); cartOne.classList.add("added"); return; }
-  if (e.target.closest("[data-cart-all]")) { toCart(S.searchResults); $$("#search-results [data-cart]").forEach((b) => b.classList.add("added")); return; }
+  if (cartOne) { toCart([items[+cartOne.dataset.cart]]); cartOne.classList.add("added"); return; }
+  if (e.target.closest("[data-cart-all]")) { toCart(items); $$("[data-cart]", e.currentTarget).forEach((b) => b.classList.add("added")); return; }
   const one = e.target.closest("[data-dl]");
   const all = e.target.closest("[data-dl-all]");
   if (!one && !all) return;
   const btn = one || all;
   try {
-    const urls = one ? [S.searchResults[+one.dataset.dl].url] : S.searchResults.map((r) => r.url);
+    const urls = one ? [items[+one.dataset.dl].url] : items.map((r) => r.url);
     await submit(urls, btn);
   } catch (err) { toast(err.detail || err.message, "err"); }
 }
@@ -418,6 +448,56 @@ export async function refreshFolders() {
   } catch { /* suggestions are a convenience */ }
 }
 
+// ───────────────────────── my YouTube (signed-in account) ─────────────────────────
+
+const accMsg = (html) => { $("#acc-msg").innerHTML = html; $("#acc-body").hidden = true; };
+
+function accSkeleton() {
+  $("#acc-playlists").innerHTML = Array.from({ length: 4 }, () => `<div class="pl-card"><div class="pl-art skeleton"></div><div class="skeleton" style="height:12px;width:80%"></div></div>`).join("");
+  $("#acc-feed").innerHTML = Array.from({ length: 3 }, () => `<div class="result"><div class="skeleton" style="width:92px;height:52px"></div><div style="flex:1"><div class="skeleton" style="height:13px;width:80%;margin-bottom:7px"></div><div class="skeleton" style="height:11px;width:40%"></div></div></div>`).join("");
+}
+
+const needCookies = (text) => `<div class="glass-in p-3 text-center">
+  <div class="mb-2"><i class="bi bi-person-lock" style="font-size:26px;color:var(--g2)"></i></div>
+  <div class="small mb-2">${esc(text)}</div>
+  <button class="btn-grad sm" type="button" data-acc-cookies><i class="bi bi-key-fill me-1"></i>Add YouTube cookies</button></div>`;
+
+function playlistCard(p, i) {
+  const icon = p.music ? "heart-fill" : p.id === "WL" ? "clock-history" : p.pinned ? "hand-thumbs-up-fill" : "music-note-list";
+  const art = p.thumbnail ? `<img loading="lazy" alt="" src="${esc(p.thumbnail)}" onerror="this.remove()">` : `<i class="bi bi-${icon}"></i>`;
+  const sub = [p.count ? `${p.count} videos` : "", p.music ? "YouTube Music" : p.uploader || ""].filter(Boolean).join(" · ");
+  return `<button class="pl-card" type="button" data-pl="${i}" style="animation-delay:${Math.min(i, 12) * 30}ms" title="${esc(p.title)}">
+    <div class="pl-art">${art}</div><div class="pl-t clamp-2">${esc(p.title)}</div>${sub ? `<div class="pl-s clamp-2">${esc(sub)}</div>` : ""}</button>`;
+}
+
+async function loadAccount(force = false) {
+  if (S.accLoaded && !force) return;
+  S.accLoaded = true;
+  $("#acc-msg").innerHTML = "";
+  $("#acc-body").hidden = false;
+  accSkeleton();
+  const [pl, home] = await Promise.allSettled([api.accountPlaylists(), api.accountHome()]);
+  if (pl.status === "rejected") { S.accLoaded = false; return accMsg(`<div class="job-error"><i class="bi bi-exclamation-octagon-fill"></i><span>${esc(pl.reason.detail || pl.reason.message)}</span></div>`); }
+  if (!pl.value.signed_in) { S.accLoaded = false; return accMsg(needCookies(pl.value.message)); }
+
+  S.playlists = pl.value.playlists;
+  $("#acc-playlists").innerHTML = S.playlists.map(playlistCard).join("");
+  S.feed = home.status === "fulfilled" ? home.value.entries : [];
+  const warn = pl.value.message || (home.status === "fulfilled" ? home.value.message : home.reason.detail || home.reason.message);
+  if (warn && !S.feed.length) $("#acc-msg").innerHTML = `<div class="job-error mb-2"><i class="bi bi-exclamation-triangle-fill"></i><span>${esc(warn)}</span></div>`;
+  $("#acc-feed").innerHTML = S.feed.length ? resultsHTML(S.feed) : `<div class="muted text-center p-3">Nothing to show in your home feed.</div>`;
+}
+
+/** Open one of the account's playlists in the normal link flow (track picker, play, shuffle, cart, download). */
+function openAccountPlaylist(i) {
+  const p = S.playlists[i];
+  if (!p) return;
+  setSource("link");
+  $("#url-input").value = p.url;
+  readUrls();
+  $("#preview").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
 // ───────────────────────── init ─────────────────────────
 
 function setSource(src) {
@@ -425,7 +505,9 @@ function setSource(src) {
   $$("#src-seg button").forEach((b) => b.classList.toggle("active", b.dataset.src === src));
   $("#src-link").hidden = src !== "link";
   $("#src-search").hidden = src !== "search";
-  if (src === "search") setTimeout(() => $("#search-input").focus(), 50);
+  $("#src-account").hidden = src !== "account";
+  if (src === "account") loadAccount();
+  else if (src === "search") setTimeout(() => $("#search-input").focus(), 50);
   else $("#url-input").focus();
 }
 
@@ -484,7 +566,7 @@ export function initComposer(cfg) {
     } catch { toast("Clipboard access was blocked — paste with Ctrl+V instead.", "warn"); }
   });
   $("#preview").addEventListener("change", onPreviewEvent);
-  $("#preview").addEventListener("click", (e) => { if (e.target.closest("[data-pick], [data-prev-play], [data-prev-shuffle], [data-prev-cart]")) onPreviewEvent(e); });
+  $("#preview").addEventListener("click", (e) => { if (e.target.closest("[data-pick], [data-prev-play], [data-prev-shuffle], [data-prev-cart], [data-e-play], [data-e-cart], [data-e-dl]")) onPreviewEvent(e); });
   $("#amb-banner").addEventListener("click", (e) => { if (e.target.closest("[data-pick]")) onPreviewEvent(e); });
   $("#preview").addEventListener("input", (e) => {
     if (e.target.id !== "sel-spec" || !S.preview) return;
@@ -497,9 +579,14 @@ export function initComposer(cfg) {
   $("#go-btn").addEventListener("click", onGo);
   $("#cart-add-btn").addEventListener("click", onCartAdd);
   $("#search-form").addEventListener("submit", doSearch);
-  $("#search-results").addEventListener("click", onResultClick);
+  $("#search-results").addEventListener("click", (e) => onResultClick(e, () => S.searchResults));
+  $("#acc-feed").addEventListener("click", (e) => onResultClick(e, () => S.feed));
+  $("#acc-playlists").addEventListener("click", (e) => { const c = e.target.closest("[data-pl]"); if (c) openAccountPlaylist(+c.dataset.pl); });
+  $("#acc-msg").addEventListener("click", (e) => { if (e.target.closest("[data-acc-cookies]")) window.dispatchEvent(new CustomEvent("open-cookies")); });
+  $("#acc-refresh").addEventListener("click", () => loadAccount(true));
+  window.addEventListener("cookies-changed", () => { S.accLoaded = false; if (S.src === "account") loadAccount(true); });
   window.addEventListener("player-change", (e) => {
-    document.querySelectorAll("#search-results .result").forEach((el) => el.classList.toggle("is-playing", !!e.detail.key && el.dataset.key === e.detail.key));
+    document.querySelectorAll("#search-results .result, #acc-feed .result").forEach((el) => el.classList.toggle("is-playing", !!e.detail.key && el.dataset.key === e.detail.key));
   });
   // "Download this" button on the mini player (YouTube tracks)
   window.addEventListener("queue-download", async (e) => {

@@ -71,6 +71,7 @@ services:
       - ./services:/app/services:ro
       - ./tasks:/app/tasks:ro
       - ./web:/app/web:ro
+      - ./extension:/app/extension:ro
       - ./main.py:/app/main.py:ro
     depends_on:
       redis: { condition: service_healthy }

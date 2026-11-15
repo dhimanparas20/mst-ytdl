@@ -50,6 +50,7 @@
             <div class="seg" id="src-seg" role="tablist">
               <button type="button" class="active" data-src="link"><i class="bi bi-link-45deg"></i>Link</button>
               <button type="button" data-src="search"><i class="bi bi-search"></i>Search</button>
+              <button type="button" data-src="account"><i class="bi bi-person-heart"></i>Mine</button>
             </div>
           </div>
 
@@ -73,6 +74,18 @@
             </form>
             <div class="opt" style="padding-left:2px"><div><div class="opt-t" style="font-size:13px">Use YouTube Music links</div></div><div class="form-check form-switch m-0"><input id="search-music" class="form-check-input" type="checkbox"></div></div>
             <div id="search-results" class="results"></div>
+          </div>
+
+          <!-- my YouTube: the signed-in account's playlists + home feed -->
+          <div id="src-account" hidden>
+            <div id="acc-msg"></div>
+            <div id="acc-body" hidden>
+              <div class="field-label flex items-center justify-between"><span>Your playlists</span>
+                <button class="btn-icon sm" id="acc-refresh" type="button" aria-label="Reload" title="Reload"><i class="bi bi-arrow-repeat"></i></button></div>
+              <div id="acc-playlists" class="pl-grid"></div>
+              <div class="field-label mt-3">Home feed <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">· what YouTube recommends to you</span></div>
+              <div id="acc-feed" class="results"></div>
+            </div>
           </div>
 
           <hr style="border-color:var(--stroke);opacity:1;margin:18px 0">
@@ -239,6 +252,7 @@
           </div>
         </section>
       </div>
+      <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" aria-label="Resize columns" tabindex="0" title="Drag to resize · double-click to reset"></div>
     </div>
   </div>
 
@@ -255,6 +269,23 @@
       <div class="modal-content">
         <div class="modal-header"><h5 class="modal-title"><i class="bi bi-shield-lock me-2 grad-text"></i><span id="ck-modal-title">YouTube cookies</span></h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
         <div class="modal-body">
+          <div id="connect-box" class="connect-box glass-in p-3 mb-3" hidden>
+            <div class="flex items-center gap-2 mb-1"><i class="bi bi-google grad-text"></i><b>Sign in with Google</b></div>
+            <div class="small muted mb-2">Sign in to YouTube in your own browser, then press one button in a small browser extension. No cookie files.
+              <span id="cn-keep">This gives the server your YouTube session for <span id="cn-hours">24</span> hours, then it is deleted.</span></div>
+            <button class="btn-grad" id="cn-go" type="button"><i class="bi bi-google me-2"></i>Sign in with Google</button>
+            <ol id="cn-steps" class="cn-steps small" hidden>
+              <li>Sign in to YouTube in the tab that just opened (<a id="cn-open" href="#" target="_blank" rel="noopener">open it again</a>).</li>
+              <li>Install the extension once: <a href="/api/connect/extension.zip" download>download it</a>, unzip it, open <span class="mono">chrome://extensions</span>
+                (Edge: <span class="mono">edge://extensions</span>), turn on <b>Developer mode</b>, press <b>Load unpacked</b> and pick the unzipped folder (the one that directly contains <span class="mono">manifest.json</span>).</li>
+              <li>Click the extension, enter this code and press <b>Connect</b>:
+                <span class="cn-code mono" id="cn-code">----</span>
+                <button class="btn-icon sm" id="cn-copy" type="button" aria-label="Copy the code" title="Copy"><i class="bi bi-clipboard"></i></button>
+                <div class="faint">Server: <span class="mono" id="cn-server"></span></div></li>
+            </ol>
+            <div id="cn-status" class="small mt-2" aria-live="polite"></div>
+          </div>
+          <div class="faint small mb-2" id="cn-or" hidden>Or paste your cookies yourself:</div>
           <div id="ck-modal-status" class="mb-1" style="font-size:13px"></div>
           <div id="ck-test-result" class="mb-2" style="font-size:13px" aria-live="polite"></div>
           <textarea id="ck-text" class="form-control mono" rows="12" spellcheck="false" autocomplete="off" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com&#9;TRUE&#9;/&#9;TRUE&#9;1893456000&#9;SID&#9;…" style="font-size:12px;white-space:pre;overflow:auto"></textarea>

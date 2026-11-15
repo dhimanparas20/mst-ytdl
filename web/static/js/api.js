@@ -48,6 +48,10 @@ export const api = {
   testCookies: () => request("POST", "/cookies/test"),
 
   info: (url, playlist_mode = "auto") => request("POST", "/info", { url, playlist_mode }),
+  connectStart: () => request("POST", "/connect"),
+  connectStatus: (code) => request("GET", `/connect/${encodeURIComponent(code)}`),
+  accountPlaylists: () => request("GET", "/account/playlists"),
+  accountHome: (limit = 40) => request("GET", "/account/home" + qs({ limit })),
   search: (q, music = false, limit = 12) => request("GET", "/search" + qs({ q, music: music || undefined, limit })),
 
   create: (body) => request("POST", "/downloads", body),

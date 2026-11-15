@@ -71,6 +71,8 @@ KNOBS: tuple[Knob, ...] = (
     Knob("server.analytics_days", "Retention", "Keep statistics (days)", "", "int", 1, 365),
     Knob("task.record_retention_days", "Retention", "Keep job records (days)", "", "int", 1, 365),
     # access
+    Knob("server.connect_enabled", "Access", "Sign in with the browser extension",
+         "Lets people link their YouTube account with one click through the extension instead of pasting cookies. Pasting stays available.", "bool"),
     Knob("server.share_server_cookies", "Access", "Visitors may use the server's cookies",
          "Off: visitors use their own cookies or none.", "bool", server_only=True),
     # download defaults

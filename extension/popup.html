@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>mst-ytdl connect</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>Connect your YouTube account</h1>
+  <p class="hint">1. Sign in to YouTube in this browser.<br>2. Enter the code shown on the site.<br>3. Press Connect.</p>
+  <label>Code <input id="code" autocomplete="off" spellcheck="false" maxlength="9" placeholder="ABCD-EFGH"></label>
+  <label>Server <input id="server" autocomplete="off" spellcheck="false" placeholder="https://your-server"></label>
+  <button id="go" type="button">Connect</button>
+  <div id="msg" role="status"></div>
+  <p class="fine">Sends the YouTube / Google cookies of this browser to the server above — only now, only once. Nothing is sent otherwise.</p>
+  <script src="popup.js"></script>
+</body>
+</html>

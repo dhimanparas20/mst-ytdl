@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "mst-ytdl connect",
+  "version": "1.0.0",
+  "description": "Links your signed-in YouTube account to your mst-ytdl server with one click. Sends cookies only when you press the button, only to the server you choose.",
+  "permissions": ["cookies", "storage"],
+  "host_permissions": ["https://*.youtube.com/*", "https://*.google.com/*"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "action": { "default_popup": "popup.html", "default_title": "mst-ytdl connect", "default_icon": "icon.png" },
+  "icons": { "128": "icon.png" },
+  "browser_specific_settings": { "gecko": { "id": "connect@mst-ytdl.local" } }
+}

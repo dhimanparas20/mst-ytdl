@@ -88,6 +88,23 @@ A separate, responsive page for whoever runs the server (works in both modes). S
 
 Statistics are Redis counters kept `SERVER_ANALYTICS_DAYS` (30); visitors (anonymous id, IP, browser) are tracked in server mode only and expire after 7 days.
 
+## Sign in with Google (browser extension)
+
+Nobody has to export a cookies file. In the cookies dialog, **Sign in with Google** opens Google's sign-in in a new tab and shows a one-time code. A small extension (`extension/`, Chrome / Edge / Brave / Firefox) sends that browser's YouTube cookies to your server when the person presses *Connect* and types the code. No Google Cloud project, OAuth client or secret is involved: a web page cannot read another site's cookies, so the extension does the one step the page can't.
+
+- The site serves the extension at `/api/connect/extension.zip`, already pointed at this server. It is installed once (unzip, *Load unpacked*).
+- The code is single use, lasts 10 minutes and is bound to the visitor that asked for it; uploads are rate-limited per IP.
+- Cookies are stored exactly like pasted ones (server mode: that visitor only, deleted after `SERVER_VISITOR_COOKIE_HOURS`). Logged-out cookies are refused and never overwrite working ones.
+- `SERVER_CONNECT_ENABLED` / admin → Settings → *Sign in with the browser extension* turns it off; pasting cookies keeps working either way.
+
+## My YouTube (playlists and home feed)
+
+The **Mine** tab of *New download* reads the signed-in account through your YouTube cookies: *Liked music*, *Liked videos*, *Watch later*, your library playlists, and the home feed YouTube recommends to you. A playlist opens in the normal link flow (pick tracks, play, shuffle, add to cart, download; every track row also has its own play / cart / download buttons); feed rows have the same play / cart / download buttons plus play all, shuffle and download all.
+
+- **Local mode** uses the server's cookies (yours). **Server mode** uses only the visitor's *own* cookies, never the server's, even with `SERVER_SHARE_SERVER_COOKIES`, and caches per visitor.
+- YouTube Music's own home page is not available to yt-dlp; *Liked music* (opens with YouTube Music links) and the YouTube home feed stand in for it.
+- Without login cookies the tab explains this and opens the cookies dialog. Expired cookies show a message instead of an error.
+
 ## Download cart
 
 The bag button in the header opens the cart. Add with the *bag +* buttons on search results (one, or *All to cart*), on a URL preview (*Add to cart* / *Selected to cart* for a playlist), or with **Cart** next to *Download* (every pasted link; playlists add their available tracks). The cart lives in your browser (synced across tabs).
@@ -272,6 +289,8 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `POST /cart/checkout` | The download cart as ONE job `{entries[{url, title?, uploader?, thumbnail?, duration?}], name?, zip?, …download options}` → `{job, rejected[]}` |
 | `GET /downloads/{id}/file` · `GET /items/{id}/file?download=` | Save a finished job (single file, or ZIP of a playlist / cart; server mode: the prepared delivery, 409 while preparing) / one finished track |
 | `GET /my-cookies` · `PUT /my-cookies` `{text}` · `DELETE /my-cookies` · `POST /my-cookies/test` | Server mode: this visitor's own YouTube cookies (status never contains values; 422 in personal mode) |
+| `POST /connect` · `GET /connect/{code}` · `POST /connect/{code}` `{text}` · `GET /connect/extension.zip` | Extension sign-in: new one-time code `{code, expires_in, server}` · its state (`waiting` / `done`, owner only) · the extension's cookie upload (the code is the credential) · the extension, pre-set to this server |
+| `GET /account/playlists` · `GET /account/home?limit=` | The signed-in account's playlists (pinned Liked music / Liked videos / Watch later first) and home feed as tracks: `{signed_in, playlists \| entries, message}`; never an error for missing / expired cookies |
 | `GET /lyrics?title=&artist=&duration=` | Lyrics for the player: `{found, synced[{t, text}], plain, instrumental, source, message}` |
 | `GET /admin` · `POST /admin/login` `{username, password}` · `POST /admin/logout` | Admin session (HttpOnly cookie); 403 wrong credentials, 429 locked out. The dashboard page itself is `GET /admin` (no `/api`) |
 | `GET /admin/overview` · `/admin/jobs` · `POST /admin/jobs/bulk` · `/admin/visitors` · `GET/POST /admin/bans` · `DELETE /admin/bans/{ip}` | Dashboard data: KPIs + statistics, every visitor's jobs and bulk actions, visitors, IP blocks |
@@ -286,7 +305,7 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 
 ```bash
 node --test "web/tests/*.test.js"   # 28 tests: formatting, speed units, shuffle/queue/quality/window logic
-uv run pytest                 # ~1090 fast tests (fake Redis + scripted yt-dlp), ~60 s
+uv run pytest                 # ~1110 fast tests (fake Redis + scripted yt-dlp), ~60 s
 uv run pytest -m live         # real YouTube / yt-dlp / ffmpeg (downloads a few MB, needs internet)
 uv run ruff check .
 ```

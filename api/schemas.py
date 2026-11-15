@@ -107,7 +107,14 @@ class ConfigResponse(BaseModel):
     max_job_items: int = 0  # server mode: tracks per playlist / cart
     max_active_jobs: int = 0  # server mode: unfinished downloads per visitor
     visitor_cookie_hours: int = 0  # server mode: how long a visitor's own cookies are kept
+    connect_enabled: bool = False  # the extension sign-in is offered (admin switch)
     lyrics: bool = False  # a lyrics provider is configured (DL_LYRICS_URL)
+
+
+class ConnectUpload(BaseModel):
+    """Body of ``POST /connect/{code}``: the cookies the extension read from the signed-in browser."""
+
+    text: str = Field(max_length=600_000)
 
 
 class CookieUpload(BaseModel):

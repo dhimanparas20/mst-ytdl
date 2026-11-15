@@ -7,6 +7,7 @@ import { initPlayer } from "./player.js";
 import { initStage } from "./stage.js";
 import { initLibrary, loadLibrary, currentPath } from "./library.js";
 import { applySnapshot, initQueue, setParCap, setQueueMode, showRuntime } from "./queue.js";
+import { initConnect } from "./connect.js";
 import { initSettings, renderHealth } from "./settings.js";
 import { connectEvents } from "./sse.js";
 import { enableRipple, initTooltips, toast } from "./ui.js";
@@ -72,14 +73,54 @@ function setLive(state) {
   $("#live-chip").setAttribute("data-bs-original-title", live ? "Live updates connected" : "Connection lost — retrying");
 }
 
+// ── resizable columns (desktop): drag the divider, ←/→ to nudge, double-click / Home to reset ──
+const SPLIT_KEY = "mst.leftw", SPLIT_DEFAULT = 440, SPLIT_MIN = 340, SPLIT_RIGHT_MIN = 460;
+
+function initSplitter() {
+  const layout = $(".layout"), bar = $("#splitter");
+  if (!layout || !bar) return;
+  const limit = (w) => Math.round(Math.max(SPLIT_MIN, Math.min(w, layout.clientWidth - SPLIT_RIGHT_MIN - 20)));
+  const apply = (w) => { layout.style.setProperty("--left-w", limit(w) + "px"); bar.setAttribute("aria-valuenow", String(limit(w))); };
+  const save = () => { try { localStorage.setItem(SPLIT_KEY, String(parseInt(layout.style.getPropertyValue("--left-w")))); } catch { /* private mode */ } };
+  let saved = SPLIT_DEFAULT;
+  try { saved = Number(localStorage.getItem(SPLIT_KEY)) || SPLIT_DEFAULT; } catch { /* private mode */ }
+  apply(saved);
+  window.addEventListener("resize", () => apply(parseInt(layout.style.getPropertyValue("--left-w")) || SPLIT_DEFAULT));
+
+  bar.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    bar.setPointerCapture(e.pointerId);
+    layout.classList.add("is-resizing"); document.body.classList.add("is-resizing");
+    const left = layout.getBoundingClientRect().left;
+    const move = (ev) => apply(ev.clientX - left - 10);   // 10 = half the gap, so the bar follows the pointer
+    const stop = () => {
+      bar.removeEventListener("pointermove", move); bar.removeEventListener("pointerup", stop); bar.removeEventListener("pointercancel", stop);
+      layout.classList.remove("is-resizing"); document.body.classList.remove("is-resizing"); save();
+    };
+    bar.addEventListener("pointermove", move); bar.addEventListener("pointerup", stop); bar.addEventListener("pointercancel", stop);
+  });
+  bar.addEventListener("dblclick", () => { apply(SPLIT_DEFAULT); save(); });
+  bar.addEventListener("keydown", (e) => {
+    const cur = parseInt(layout.style.getPropertyValue("--left-w")) || SPLIT_DEFAULT;
+    const step = e.shiftKey ? 80 : 20;
+    if (e.key === "ArrowLeft") apply(cur - step);
+    else if (e.key === "ArrowRight") apply(cur + step);
+    else if (e.key === "Home") apply(SPLIT_DEFAULT);
+    else return;
+    e.preventDefault(); save();
+  });
+}
+
 async function boot() {
   enableRipple();
   initTooltips();
   initQueue();
   initLibrary();
   initSettings();
+  initConnect();
   initPlayer();
   initStage();
+  initSplitter();
 
   // tabs
   $("#tabs-top").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) setTab(b.dataset.tab); });

@@ -89,6 +89,7 @@ def config() -> ConfigResponse:
         max_active_jobs=s.server.max_active_jobs if s.server.mode else 0,
         visitor_cookie_hours=s.server.visitor_cookie_hours if s.server.mode else 0,
         lyrics=bool(s.download.lyrics_url),
+        connect_enabled=s.server.connect_enabled,
     )
 
 

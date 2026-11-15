@@ -159,6 +159,7 @@ class ServerSettings(BaseSettings):
     rate_limit_per_minute: int = Field(default=60, ge=1)  # info / search / submit calls per IP
     cache_minutes: int = Field(default=10, ge=0)  # preview / search / playlist cache (0 = off)
     visitor_cookie_hours: int = Field(default=24, ge=1)  # how long a visitor's own pasted cookies are kept
+    connect_enabled: bool = True  # "Sign in" with the browser extension (SERVER_CONNECT_ENABLED); pasting cookies always works
     share_server_cookies: bool = False  # let visitors use the server's (admin's) cookies — off: their own or none
     max_speed: int | None = None  # hard ceiling per download (bytes/sec; accepts "2M"); nobody can set more
     maintenance: bool = False  # server mode: refuse new downloads (the message below is shown to visitors)

@@ -3,6 +3,7 @@ Domain models — pure Pydantic data + validation, re-exported here.
 Call sites always do ``from models import DownloadJob``, never module paths.
 """
 
+from models.account import AccountFeed, AccountPlaylist, AccountPlaylists
 from models.cookies import CookieStatus, CookieTestResult
 from models.download import (
     CartEntry,
@@ -44,6 +45,9 @@ from models.stream import (
 )
 
 __all__ = [
+    "AccountFeed",
+    "AccountPlaylist",
+    "AccountPlaylists",
     "CookieStatus",
     "LyricLine",
     "Lyrics",

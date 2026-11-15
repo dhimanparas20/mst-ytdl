@@ -4,9 +4,11 @@ Public surface: import from here, never from service module paths directly.
 """
 
 from services.access import AccessService, access_service
+from services.account import AccountService, account_service
 from services.admin_config import AdminConfigService, admin_config
 from services.analytics import AnalyticsService, analytics
 from services.cache import CacheService, cache_service
+from services.connect import ConnectService, connect_service
 from services.cookies import CookieService, cookie_service
 from services.delivery import DeliveryService, delivery_service
 from services.dispatch import Dispatcher, get_dispatcher, set_dispatcher
@@ -32,6 +34,10 @@ from services.store import JobStore, job_store
 from services.streaming import MediaStream, StreamService, stream_service
 
 __all__ = [
+    "ConnectService",
+    "connect_service",
+    "AccountService",
+    "account_service",
     "AccessService",
     "AdminConfigService",
     "AnalyticsService",

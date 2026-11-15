@@ -156,11 +156,17 @@ class MetadataService:
         )
         return pl
 
-    def _expand_playlist(self, url: str) -> PlaylistInfo:
-        info = self._extract(url, flat=True)
-        music = "music.youtube.com" in url
+    def feed(self, url: str, limit: int) -> list[dict[str, Any]]:
+        """Flat entries of an account feed (``:ytrec``, ``/feed/playlists``, ...), at most ``limit``. Raises on yt-dlp errors."""
+        with YoutubeDL(base_extract_opts(flat=True, max_items=limit)) as ydl:
+            info = ydl.extract_info(url, download=False)
+        return list((info or {}).get("entries") or [])
+
+    @staticmethod
+    def entries_from(raw: list[dict[str, Any] | None], *, music: bool = False) -> list[EntryInfo]:
+        """yt-dlp flat entries → ``EntryInfo`` (private / deleted ones kept but ``available=False``)."""
         entries: list[EntryInfo] = []
-        for idx, e in enumerate(info.get("entries") or [], start=1):
+        for idx, e in enumerate(raw, start=1):
             if not e:
                 entries.append(EntryInfo(index=idx, url="", title="[unavailable]", available=False))
                 continue
@@ -180,6 +186,11 @@ class MetadataService:
                     available=ok,
                 )
             )
+        return entries
+
+    def _expand_playlist(self, url: str) -> PlaylistInfo:
+        info = self._extract(url, flat=True)
+        entries = self.entries_from(info.get("entries") or [], music="music.youtube.com" in url)
         thumbs = info.get("thumbnails") or []
         return PlaylistInfo(
             title=(info.get("title") or "Playlist").strip(),

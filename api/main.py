@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 import tasks  # noqa: F401  — registers the Huey dispatcher with services
 from api.deps import visitor_middleware
-from api.routers import admin, cookies, downloads, events, info, library, lyrics, stream, system
+from api.routers import account, admin, connect, cookies, downloads, events, info, library, lyrics, stream, system
 from configs import BASE_DIR, get_settings
 from modules import attach_server_logs, get_logger, log_dir
 from modules.redis_util import validate_redis_connection
@@ -110,7 +110,7 @@ def create_app() -> FastAPI:
     if s.server.mode:  # every browser gets an anonymous id that scopes its queue
         app.middleware("http")(visitor_middleware)
 
-    for r in (system.router, info.router, downloads.router, events.router, library.router, stream.router, cookies.router, admin.router, admin.guarded, lyrics.router):
+    for r in (system.router, info.router, downloads.router, events.router, library.router, stream.router, cookies.router, admin.router, admin.guarded, lyrics.router, account.router, connect.router):
         app.include_router(r, prefix="/api")
 
     # ── frontend ────────────────────────────────────────────────────

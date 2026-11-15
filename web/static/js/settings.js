@@ -86,6 +86,7 @@ async function saveCookies(btn) {
   try {
     const c = await withBusy(btn, () => CK[ckTarget].save($("#ck-text").value));
     paintCookies(c);
+    window.dispatchEvent(new CustomEvent("cookies-changed"));
     $("#ck-text").value = "";
     toast(c.warnings.length ? c.warnings.join(" ") : "Cookies saved — used immediately.", c.login ? "ok" : "warn", { ms: 4500 });
     testCookies($("#ck-test"));   // validate against YouTube right away and show the verdict
@@ -104,7 +105,7 @@ async function testCookies(btn) {
 }
 
 async function clearCookies(btn) {
-  try { paintCookies(await withBusy(btn, () => CK[ckTarget].clear())); toast(ckTarget === "mine" ? "Your cookies were deleted from the server." : "Cookies removed.", "ok", { ms: 2500 }); }
+  try { paintCookies(await withBusy(btn, () => CK[ckTarget].clear())); window.dispatchEvent(new CustomEvent("cookies-changed")); toast(ckTarget === "mine" ? "Your cookies were deleted from the server." : "Cookies removed.", "ok", { ms: 2500 }); }
   catch (e) { toast(e.detail || e.message, "err"); }
 }
 
@@ -169,6 +170,12 @@ export function initSettings() {
   });
   $("#ck-open").addEventListener("click", () => openCookies("server"));
   $("#myck-open").addEventListener("click", () => openCookies("mine"));
+  // the config may not be loaded yet (it is fetched when the settings dialog first opens): the target depends on it
+  window.addEventListener("cookies-changed", () => loadCookies());
+  window.addEventListener("open-cookies", async () => {
+    try { cfg = cfg || await api.config(); } catch { /* fall back to the personal-mode editor */ }
+    openCookies(cfg?.server_mode ? "mine" : "server");
+  });
   $("#ck-save").addEventListener("click", (e) => saveCookies(e.currentTarget));
   $("#ck-clear").addEventListener("click", (e) => clearCookies(e.currentTarget));
   $("#ck-test").addEventListener("click", (e) => testCookies(e.currentTarget));

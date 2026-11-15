@@ -1,0 +1,12 @@
+body { width: 320px; margin: 0; padding: 16px; font: 13px/1.45 system-ui, sans-serif; background: #14121f; color: #ece9ff; }
+h1 { font-size: 15px; margin: 0 0 6px; }
+.hint { margin: 0 0 12px; color: #b9b3dd; }
+label { display: block; margin-bottom: 10px; font-weight: 600; font-size: 12px; }
+input { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 8px 10px; border-radius: 9px; border: 1px solid #3b3566; background: #1d1a31; color: inherit; font: inherit; }
+#code { font: 600 17px/1.2 ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
+button { width: 100%; padding: 10px; border: 0; border-radius: 10px; font-weight: 700; font-size: 14px; color: #fff; cursor: pointer; background: linear-gradient(135deg, #8b5cf6, #22d3ee); }
+button:disabled { opacity: .6; cursor: wait; }
+#msg { min-height: 18px; margin-top: 10px; font-weight: 600; }
+#msg.ok { color: #4ade80; }
+#msg.err { color: #fb7185; }
+.fine { margin: 10px 0 0; font-size: 11px; color: #8e88b8; }
