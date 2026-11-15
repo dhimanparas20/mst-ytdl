@@ -47,6 +47,10 @@ class Knob:
 
 
 KNOBS: tuple[Knob, ...] = (
+    # maintenance
+    Knob("server.maintenance", "Maintenance", "Maintenance mode",
+         "Refuse new downloads (running ones finish). Visitors see the message below.", "bool", server_only=True),
+    Knob("server.maintenance_message", "Maintenance", "Message to visitors", "", "text", server_only=True),
     # hard ceilings
     Knob("task.max_parallel_cap", "Hard limits", "Max parallel downloads",
          "Ceiling for the parallel-downloads setting — nobody can go above it. At most the number of worker threads.",
@@ -63,7 +67,8 @@ KNOBS: tuple[Knob, ...] = (
     Knob("server.delivery_ttl_minutes", "Retention", "Keep finished files (minutes)", "How long a prepared file / ZIP stays downloadable.", "int", 1, 10080, server_only=True),
     Knob("server.visitor_cookie_hours", "Retention", "Keep visitor cookies (hours)", "", "int", 1, 720, server_only=True),
     Knob("server.cache_minutes", "Retention", "Preview / search cache (minutes)", "0 = no caching.", "int", 0, 1440, server_only=True),
-    Knob("server.admin_session_hours", "Retention", "Admin login lasts (hours)", "", "int", 1, 720, server_only=True),
+    Knob("server.admin_session_hours", "Retention", "Admin login lasts (hours)", "", "int", 1, 720),
+    Knob("server.analytics_days", "Retention", "Keep statistics (days)", "", "int", 1, 365),
     Knob("task.record_retention_days", "Retention", "Keep job records (days)", "", "int", 1, 365),
     # access
     Knob("server.share_server_cookies", "Access", "Visitors may use the server's cookies",
@@ -167,12 +172,14 @@ class AdminConfigService:
         base = self._capture_base()
         overridden = set(get_redis().hkeys(self._hkey))
         out = []
+        workers = get_settings().task.workers
         for k in KNOBS:
-            hi = get_settings().task.workers if k.key == "task.max_parallel_cap" else k.max
+            hi = workers if k.key == "task.max_parallel_cap" else k.max
             out.append({
                 "key": k.key, "group": k.group, "label": k.label, "help": k.help, "kind": k.kind,
                 "min": k.min, "max": hi, "choices": list(k.choices), "server_only": k.server_only,
-                "value": self._current(k.key), "default": base[k.key], "overridden": k.key in overridden,
+                "value": min(self._current(k.key), workers) if k.key == "task.max_parallel_cap" else self._current(k.key),
+                "default": base[k.key], "overridden": k.key in overridden,
             })
         return out
 

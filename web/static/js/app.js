@@ -1,7 +1,6 @@
 // Bootstrap: wires tabs, live updates, health polling and the feature modules.
 
 import { api } from "./api.js";
-import { initAdmin, refreshAdmin } from "./admin.js";
 import { initCart } from "./cart.js";
 import { initComposer, refreshFolders } from "./composer.js";
 import { initPlayer } from "./player.js";
@@ -49,7 +48,7 @@ function paintMode(cfg) {
     ? `<b>Server mode</b> — running as a shared site.<ul class="mode-tip">
         <li>Your downloads are private to this browser</li>
         <li>Finished files are saved to your device and deleted from the server after ${ttl} min</li>
-        <li>The library is read-only; editing needs the admin password</li>
+        <li>The library is read-only</li>
         <li>Use your own YouTube cookies (Settings)</li></ul>
        <b>Local mode</b> — a personal downloader: one shared queue, files stay in the server's downloads folder, everything is open.`
     : `<b>Local mode</b> — a personal downloader.<ul class="mode-tip">
@@ -81,7 +80,6 @@ async function boot() {
   initSettings();
   initPlayer();
   initStage();
-  initAdmin();
 
   // tabs
   $("#tabs-top").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) setTab(b.dataset.tab); });
@@ -100,7 +98,6 @@ async function boot() {
     document.body.classList.toggle("server-mode", !!cfg.server_mode);  // before anything renders
     paintMode(cfg);
     setQueueMode(cfg);
-    await refreshAdmin();
     initComposer(cfg);
     initCart(cfg);
     setParCap(cfg.max_parallel_cap);

@@ -110,13 +110,18 @@ def create_app() -> FastAPI:
     if s.server.mode:  # every browser gets an anonymous id that scopes its queue
         app.middleware("http")(visitor_middleware)
 
-    for r in (system.router, info.router, downloads.router, events.router, library.router, stream.router, cookies.router, admin.router, lyrics.router):
+    for r in (system.router, info.router, downloads.router, events.router, library.router, stream.router, cookies.router, admin.router, admin.guarded, lyrics.router):
         app.include_router(r, prefix="/api")
 
     # ── frontend ────────────────────────────────────────────────────
     static_dir = WEB_DIR / "static"
     static_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static", RevalidatingStaticFiles(directory=static_dir), name="static")
+
+    @app.get("/admin", include_in_schema=False)
+    def admin_page():
+        """The admin dashboard (its API is under /api/admin)."""
+        return FileResponse(WEB_DIR / "admin.html", headers={"Cache-Control": "no-cache", "X-Robots-Tag": "noindex"})
 
     @app.get("/", include_in_schema=False)
     def index():

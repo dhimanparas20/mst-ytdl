@@ -369,9 +369,9 @@ class TestAdmin:
     def test_login_unlocks_and_logout_locks(self, app, downloads_dir):
         (downloads_dir / "a.mp3").write_bytes(b"x")
         c = visitor(app)
-        assert c.get("/api/admin").json() == {"server_mode": True, "enabled": True, "admin": False}
-        assert c.post("/api/admin/login", json={"password": "nope"}).status_code == 403
-        r = c.post("/api/admin/login", json={"password": PASSWORD})
+        assert c.get("/api/admin").json() == {"server_mode": True, "enabled": True, "admin": False, "username": None}
+        assert c.post("/api/admin/login", json={"username": "admin", "password": "nope"}).status_code == 403
+        r = c.post("/api/admin/login", json={"username": "admin", "password": PASSWORD})
         assert r.status_code == 200 and r.json()["admin"] is True
         cookie = r.headers["set-cookie"].lower()
         assert "httponly" in cookie and "samesite=strict" in cookie
@@ -389,19 +389,19 @@ class TestAdmin:
     def test_lockout_after_repeated_failures(self, app):
         c = visitor(app)
         for _ in range(8):
-            assert c.post("/api/admin/login", json={"password": "bad"}).status_code == 403
-        assert c.post("/api/admin/login", json={"password": PASSWORD}).status_code == 429
+            assert c.post("/api/admin/login", json={"username": "admin", "password": "bad"}).status_code == 403
+        assert c.post("/api/admin/login", json={"username": "admin", "password": PASSWORD}).status_code == 429
 
     def test_no_hash_configured_means_locked(self, app, server, monkeypatch):
         monkeypatch.setattr(server, "admin_password_hash", None)
         c = visitor(app)
         assert c.get("/api/admin").json()["enabled"] is False
-        assert c.post("/api/admin/login", json={"password": PASSWORD}).status_code == 403
+        assert c.post("/api/admin/login", json={"username": "admin", "password": PASSWORD}).status_code == 403
         assert c.put("/api/runtime", json={"max_parallel": 2}).status_code == 403
 
     def test_personal_mode_is_open(self, downloads_dir, fake_ydl):
         c = TestClient(create_app())
-        assert c.get("/api/admin").json() == {"server_mode": False, "enabled": False, "admin": True}
+        assert c.get("/api/admin").json() == {"server_mode": False, "enabled": False, "admin": True, "username": None}
         assert c.put("/api/runtime", json={"max_parallel": 2}).status_code == 200
 
 
@@ -655,7 +655,7 @@ class TestVisitorCookies:
 class TestCeilings:
     def _admin(self, app):
         c = visitor(app)
-        c.post("/api/admin/login", json={"password": PASSWORD})
+        c.post("/api/admin/login", json={"username": "admin", "password": PASSWORD})
         return c
 
     def test_parallel_above_the_cap_is_rejected(self, app, monkeypatch):
@@ -721,3 +721,12 @@ class TestLiveConfig:
         from services.errors import InvalidRequestError
         with pytest.raises(InvalidRequestError, match="Unknown"):
             cfg.update({"redis.redis_url": "x"})
+
+
+def test_server_parallel_ceiling_is_the_worker_threads(app, monkeypatch):
+    monkeypatch.setattr(get_settings().task, "max_parallel_cap", 12)
+    monkeypatch.setattr(get_settings().task, "workers", 6)
+    c = visitor(app)
+    c.post("/api/admin/login", json={"username": "admin", "password": PASSWORD})
+    assert c.get("/api/runtime").json()["max_parallel_cap"] == 6
+    assert c.put("/api/runtime", json={"max_parallel": 7}).status_code == 422

@@ -32,6 +32,7 @@ from configs import get_ffmpeg_path, get_settings
 from models import ControlAction, DownloadItem, DownloadJob, DownloadStatus, JobKind
 from modules import get_logger, human_bytes, human_duration, new_id
 from modules.ytdlp_util import remove_partial_files
+from services.analytics import analytics
 from services.cache import cache_service
 from services.cookies import cookie_service
 from services.delivery import delivery_service
@@ -217,6 +218,12 @@ class DownloadRunner:
         finally:
             hb.stop()
             slot_limiter.release(holder)
+        if outcome in ("completed", "failed", "cancelled"):
+            done = job_store.get_item(item_id)
+            analytics.finished(
+                outcome, title=(done.title if done else "") or item.url, fmt=job.options.format.value,
+                size=(done.filesize or 0) if done else 0, error=(done.error or "") if done else "", cache_hit=ctx.cache_hit,
+            )
         if outcome in ("completed", "failed", "cancelled") and delivery_service.enabled:
             try:  # server mode: the last item to settle prepares the file / ZIP for the browser
                 delivery_service.maybe_build(job.job_id)

@@ -17,6 +17,8 @@ Keys (``P`` = prefix):
 
 from __future__ import annotations
 
+import hmac
+import json
 import re
 import secrets
 import time
@@ -46,10 +48,13 @@ class AccessService:
         return get_settings().server.mode
 
     @property
+    def username(self) -> str:
+        return get_settings().server.admin_username
+
+    @property
     def admin_enabled(self) -> bool:
-        """Server mode with a valid admin hash configured."""
-        s = get_settings().server
-        return s.mode and is_valid_hash(s.admin_password_hash)
+        """A valid admin password hash is configured (the /admin dashboard login works, in either mode)."""
+        return is_valid_hash(get_settings().server.admin_password_hash)
 
     # ── visitors ────────────────────────────────────────────────────
 
@@ -69,7 +74,7 @@ class AccessService:
     def _fail_key(self, ip: str) -> str:
         return f"{get_key_prefix()}:LOGINFAIL:{ip}"
 
-    def login(self, password: str, ip: str) -> str:
+    def login(self, username: str, password: str, ip: str) -> str:
         """
         Check the admin password and open a session.
 
@@ -77,7 +82,7 @@ class AccessService:
             A new session token (put it in the ``ytdl_admin`` cookie).
 
         Raises:
-            ForbiddenError: not server mode / no admin configured / wrong password.
+            ForbiddenError: no admin configured / wrong username or password.
             RateLimitedError: too many wrong passwords from this IP recently.
         """
         if not self.admin_enabled:
@@ -86,13 +91,15 @@ class AccessService:
         fails = int(r.get(self._fail_key(ip)) or 0)
         if fails >= _MAX_FAILS:
             raise RateLimitedError("Too many wrong passwords — try again in 15 minutes")
-        if not verify_password(password, get_settings().server.admin_password_hash):
+        user_ok = hmac.compare_digest((username or "").strip().lower(), get_settings().server.admin_username.strip().lower())
+        pw_ok = verify_password(password, get_settings().server.admin_password_hash)  # always runs: no timing hint
+        if not (user_ok and pw_ok):
             pipe = r.pipeline()
             pipe.incr(self._fail_key(ip))
             pipe.expire(self._fail_key(ip), _LOCKOUT_S, nx=True)
             pipe.execute()
             logger.warning(f"admin login failed from {ip} ({fails + 1}/{_MAX_FAILS})")
-            raise ForbiddenError("Wrong password")
+            raise ForbiddenError("Wrong username or password")
         r.delete(self._fail_key(ip))
         token = secrets.token_urlsafe(32)
         r.set(self._session_key(token), str(time.time()), ex=self.session_seconds)
@@ -104,7 +111,7 @@ class AccessService:
         return get_settings().server.admin_session_hours * 3600
 
     def is_admin(self, token: str | None) -> bool:
-        """Is ``token`` a live admin session? (always False outside server mode)"""
+        """Is ``token`` a live admin session?"""
         if not self.admin_enabled or not token or not _TOKEN_RE.match(token):
             return False
         return bool(get_redis().exists(self._session_key(token)))
@@ -124,6 +131,58 @@ class AccessService:
             return
         if not self.is_admin(token):
             raise ForbiddenError("This needs the admin password (Settings → Admin)")
+
+    def require_superadmin(self, token: str | None) -> None:
+        """
+        Gate for the /admin dashboard API.
+
+        A configured password always needs a session. Without one: personal mode is open (your own
+        machine), server mode stays locked.
+
+        Raises:
+            ForbiddenError: not allowed.
+        """
+        if self.admin_enabled:
+            if not self.is_admin(token):
+                raise ForbiddenError("Sign in to the admin dashboard")
+            return
+        if self.server_mode:
+            raise ForbiddenError("Set SERVER_ADMIN_PASSWORD_HASH (uv run python main.py hash-password) to use the admin dashboard")
+
+    def active_sessions(self) -> int:
+        return sum(1 for _ in get_redis().scan_iter(f"{get_key_prefix()}:ADMIN:*", count=200))
+
+    def login_failures(self) -> int:
+        """IPs with recent failed admin logins."""
+        return sum(1 for _ in get_redis().scan_iter(f"{get_key_prefix()}:LOGINFAIL:*", count=200))
+
+    # ── bans (server mode) ──────────────────────────────────────────
+
+    @property
+    def _bans(self) -> str:
+        return f"{get_key_prefix()}:BANS"
+
+    def ban(self, ip: str, reason: str = "") -> None:
+        if not ip or len(ip) > 64:
+            raise ForbiddenError("Not a valid address")
+        get_redis().hset(self._bans, ip, json.dumps({"at": time.time(), "reason": reason[:200]}))
+        logger.warning(f"banned {ip}")
+
+    def unban(self, ip: str) -> None:
+        get_redis().hdel(self._bans, ip)
+
+    def bans(self) -> list[dict]:
+        out = []
+        for ip, raw in get_redis().hgetall(self._bans).items():
+            try:
+                info = json.loads(raw)
+            except ValueError:
+                info = {}
+            out.append({"ip": ip, "at": info.get("at"), "reason": info.get("reason", "")})
+        return sorted(out, key=lambda b: -(b["at"] or 0))
+
+    def is_banned(self, ip: str) -> bool:
+        return bool(ip) and bool(get_redis().hexists(self._bans, ip))
 
     # ── rate limiting ───────────────────────────────────────────────
 

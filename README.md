@@ -29,6 +29,7 @@ downloads/
 | Extras | Cover art + tags embedded, subtitles (download + embed), speed cap, skip files that already exist (or *overwrite*), playlist track picker (`1-5, 8, 12-`), custom folder name, ZIP download of a playlist, built-in player + library browser |
 | Resilience | Auto-retry for transient errors (not for private/removed videos), crash recovery (dead workers' downloads become *Paused*), health pill (Redis / worker / ffmpeg) |
 | Cart | **Download cart**: collect songs from search results, playlist previews and pasted links, then download them in one go (one folder, or one ZIP) |
+| Admin dashboard | **`/admin`** (username + password): live analytics, every visitor's downloads, visitors & IP blocks, full file manager (hidden folders too), live settings and hard limits, maintenance mode, cache controls, log viewer |
 | Server mode | `SERVER_MODE=true` turns it into a public site: private per-visitor queues, finished files handed to the browser and **deleted after an hour**, admin-locked library management, limits — see below |
 | Safety | Host allow-list (YouTube only), path-traversal-proof library API, loopback bind by default |
 
@@ -60,6 +61,33 @@ A docked player plus a **floating video window** (drag by the header, resize fro
 
 While something plays, **✦** in the player (or `V`) opens a full-screen player over the blurred, slowly drifting cover art, with an animated scene that reacts to the music (Web Audio analyser): **Turntable** (spinning record with the cover as label, tonearm swings on), **Aurora** (drifting light in the cover's colours), **Orbit** (spectrum ring around the cover), or **Random each track**. The **“** button (or `Y`) shows lyrics: time-synced lines highlight as they are sung (click a line to jump there), else plain text. Lyrics come from [LRCLIB](https://lrclib.net) (free, no key) through our server (`GET /api/lyrics`, cached in Redis); only the cleaned artist / title / duration are sent. `Esc` closes. Honours *reduce motion*.
 
+## Admin dashboard (`/admin`)
+
+A separate, responsive page for whoever runs the server (works in both modes). Sign in with `SERVER_ADMIN_USERNAME` + the password behind `SERVER_ADMIN_PASSWORD_HASH`.
+
+![Admin overview](docs/screenshots/admin-overview.webp)
+
+| Section | What you can do |
+|---|---|
+| **Overview** | KPIs (online now, downloading, done / failed today, data, visitors, disk, worker), downloads per hour (24 h) and per day (14 d), formats, today's usage (searches, previews, plays, lyrics, carts, saves, cache hits), storage split, top downloads and searches, recent failures, limits in force — refreshes every 5 s |
+| **Activity** | every visitor's downloads (live), filter by status, multi-select pause / resume / retry / cancel / remove |
+| **Visitors** | who is online, address, browser, requests, first / last seen; block an IP (every request from it gets 403) and unblock |
+| **Files** | full file manager over `downloads/` including hidden folders: browse, sort, new folder, rename, move, copy, delete (batch), ZIP, download, preview audio / video / images / text, what fills the disk |
+| **Settings** | live limits (parallel, speed cap) and every live knob: hard ceilings (max parallel ≤ worker threads, max speed), per-visitor caps, rate limit, retention times, cookie sharing, download defaults, retries, lyrics provider — validated, applied to API and worker within seconds, *reset* back to `.env` |
+| **Cookies** | the server's YouTube cookies (paste / test / remove) |
+| **Maintenance** | maintenance mode + message (refuses new downloads), clear lookup / media / lyrics / player / cover caches, run cleanup, expire all deliveries, recover stuck downloads, clear finished jobs, delete visitor cookies, reset statistics |
+| **Logs** | live tail of every log file with level and text filters |
+
+<table><tr>
+<td><img src="docs/screenshots/admin-activity.webp" alt="Admin — activity"></td>
+<td><img src="docs/screenshots/admin-files.webp" alt="Admin — file manager"></td>
+</tr><tr>
+<td><img src="docs/screenshots/admin-settings.webp" alt="Admin — live settings"></td>
+<td align="center"><img src="docs/screenshots/admin-mobile.webp" alt="Admin on a phone" width="260"></td>
+</tr></table>
+
+Statistics are Redis counters kept `SERVER_ANALYTICS_DAYS` (30); visitors (anonymous id, IP, browser) are tracked in server mode only and expire after 7 days.
+
 ## Download cart
 
 The bag button in the header opens the cart. Add with the *bag +* buttons on search results (one, or *All to cart*), on a URL preview (*Add to cart* / *Selected to cart* for a playlist), or with **Cart** next to *Download* (every pasted link; playlists add their available tracks). The cart lives in your browser (synced across tabs).
@@ -78,8 +106,8 @@ For running the app on a server for other people. Off by default; with `SERVER_M
 | Where files go | `downloads/<date or playlist>/` | `downloads/.deliveries/<job id>/` — one private directory per job, hidden from the library |
 | When a job finishes | stays in the library | single video → the file, playlist / cart → **one ZIP** (stored, no recompression); the browser saves it automatically (and a *Save* button stays) |
 | Cleanup | never | a Huey task every minute deletes jobs whose delivery is older than `SERVER_DELIVERY_TTL_MINUTES` (60): records, the job directory, temp dirs. Paused jobs idle that long and unreferenced directories go too |
-| Library | full control | **read-only** for everyone (browse, play, save, ZIP); delete / move / rename need the admin |
-| Settings | open | parallel limit, speed cap, cookies need the admin; per-download folder / overwrite are ignored |
+| Library | full control | **read-only** in the app (browse, play, save, ZIP); the admin manages files at `/admin` |
+| Settings | open | the app shows only the visitor's own cookies; limits, server cookies and everything else live at `/admin`; per-download folder / overwrite are ignored |
 | Limits | – | hard ceilings for parallel downloads (`TASK_MAX_PARALLEL_CAP`) and speed (`SERVER_MAX_SPEED`) that nothing can exceed (422), `SERVER_MAX_ACTIVE_JOBS` per visitor, `SERVER_MAX_JOB_ITEMS` per playlist / cart, `SERVER_MIN_FREE_MB` disk guard (503), `SERVER_RATE_LIMIT_PER_MINUTE` per IP on preview / search / submit (429) |
 | Caching | – | previews, searches and playlist reads cached `SERVER_CACHE_MINUTES`; a finished file is reused (hard link) when another visitor asks for the same video + format + options within the TTL |
 
@@ -87,13 +115,13 @@ For running the app on a server for other people. Off by default; with `SERVER_M
 
 Deletion is index-driven: every finished job gets a record (`P:DELIVERY:<job>`, plus a sorted set by expiry) and the sweep only ever deletes `downloads/.deliveries/<job id>/` of expired records, so two visitors downloading the same song never touch each other's files.
 
-**Admin password.** Hash it, put the line in `.env`, restart:
+**Admin password.** Hash it, put the line in `.env` (username: `SERVER_ADMIN_USERNAME`, default `admin`), restart:
 
 ```bash
 uv run python main.py hash-password
 ```
 
-Then *Admin* in the header (or Settings → Server mode) unlocks management for 12 h (`SERVER_ADMIN_SESSION_HOURS`); 8 wrong passwords lock that IP out for 15 minutes. Without a hash, management stays locked.
+Then sign in at **`/admin`** (session 12 h, `SERVER_ADMIN_SESSION_HOURS`; 8 wrong attempts lock that IP out for 15 minutes). Without a hash the dashboard is open in personal mode and locked in server mode. The main app never shows admin controls in server mode.
 
 Running it publicly: bind `API_HOST=0.0.0.0` (compose already does) behind HTTPS (a reverse proxy; uvicorn runs with `--proxy-headers`, so rate limits see the real client IP).
 
@@ -217,6 +245,9 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `SERVER_CACHE_MINUTES` | `10` | Preview / search / playlist cache (0 = off) |
 | `SERVER_VISITOR_COOKIE_HOURS` | `24` | How long a visitor's own pasted cookies are kept |
 | `SERVER_MAX_SPEED` | – | Hard speed ceiling per download, e.g. `5M`: speed caps above it are rejected, uncapped downloads are held to it |
+| `SERVER_ADMIN_USERNAME` | `admin` | Username for `/admin` |
+| `SERVER_MAINTENANCE` / `SERVER_MAINTENANCE_MESSAGE` | `false` / … | Refuse new downloads with that message (also a switch in `/admin`) |
+| `SERVER_ANALYTICS_DAYS` | `30` | How long dashboard statistics are kept |
 | `SERVER_SHARE_SERVER_COOKIES` | `false` | Let visitors without own cookies use the server's cookies file |
 | `DL_LYRICS_URL` | `https://lrclib.net` | Lyrics provider for the player; empty = off |
 | `LOG_LEVEL`, `LOG_FORMAT` | `INFO`, `text` | `text` or `json` |
@@ -242,8 +273,11 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `GET /downloads/{id}/file` · `GET /items/{id}/file?download=` | Save a finished job (single file, or ZIP of a playlist / cart; server mode: the prepared delivery, 409 while preparing) / one finished track |
 | `GET /my-cookies` · `PUT /my-cookies` `{text}` · `DELETE /my-cookies` · `POST /my-cookies/test` | Server mode: this visitor's own YouTube cookies (status never contains values; 422 in personal mode) |
 | `GET /lyrics?title=&artist=&duration=` | Lyrics for the player: `{found, synced[{t, text}], plain, instrumental, source, message}` |
-| `GET /admin/config` · `PUT /admin/config` `{values, reset[]}` | Admin: live settings (limits incl. the hard parallel / speed ceilings, retention, defaults, engine) — validated all-or-nothing, applied to API and worker within seconds |
-| `GET /admin` · `POST /admin/login` `{password}` · `POST /admin/logout` | Server-mode admin session (HttpOnly cookie); 403 wrong password, 429 locked out |
+| `GET /admin` · `POST /admin/login` `{username, password}` · `POST /admin/logout` | Admin session (HttpOnly cookie); 403 wrong credentials, 429 locked out. The dashboard page itself is `GET /admin` (no `/api`) |
+| `GET /admin/overview` · `/admin/jobs` · `POST /admin/jobs/bulk` · `/admin/visitors` · `GET/POST /admin/bans` · `DELETE /admin/bans/{ip}` | Dashboard data: KPIs + statistics, every visitor's jobs and bulk actions, visitors, IP blocks |
+| `GET /admin/config` · `PUT /admin/config` `{values, reset[]}` | Live settings (hard ceilings, limits, retention, maintenance, defaults, engine) — validated all-or-nothing, applied to API and worker within seconds |
+| `GET /admin/files` · `/files/usage` · `POST /files/{mkdir,rename,move,copy,delete}` · `GET /files/{download,zip,text}` | File manager over the downloads root (hidden entries included) |
+| `GET /admin/maintenance` · `POST /admin/maintenance/{action}` · `GET /admin/logs` · `/admin/logs/{name}` | Housekeeping actions; log tail (`lines`, `level`, `q`) |
 | `GET /events` | SSE stream of queue snapshots (server mode: your queue only) |
 | `GET /library` · `/library/file` · `/library/zip` · `DELETE /library` · `GET /library/usage` | Browse, stream (Range), zip, delete; usage = library files / bytes + disk total / used / free. Server mode: writes need the admin (403) |
 | `GET/PUT /runtime` · `GET /config` · `GET /health` | Live settings, UI option lists, dependency check |
@@ -252,7 +286,7 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 
 ```bash
 node --test "web/tests/*.test.js"   # 28 tests: formatting, speed units, shuffle/queue/quality/window logic
-uv run pytest                 # ~1070 fast tests (fake Redis + scripted yt-dlp), ~60 s
+uv run pytest                 # ~1090 fast tests (fake Redis + scripted yt-dlp), ~60 s
 uv run pytest -m live         # real YouTube / yt-dlp / ffmpeg (downloads a few MB, needs internet)
 uv run ruff check .
 ```

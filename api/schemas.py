@@ -124,7 +124,24 @@ class CartResponse(BaseModel):
 
 
 class AdminLogin(BaseModel):
+    username: str = Field(min_length=1, max_length=100)
     password: str = Field(min_length=1, max_length=200)
+
+
+class BanRequest(BaseModel):
+    ip: str = Field(min_length=2, max_length=64)
+    reason: str = Field(default="", max_length=200)
+
+
+class MkdirRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=300)
+
+
+class FileOpRequest(BaseModel):
+    """Admin file manager batch: move / copy into ``dest``, or delete."""
+
+    paths: list[str] = Field(min_length=1, max_length=2000)
+    dest: str | None = Field(default=None, max_length=300)
 
 
 class ConfigKnob(BaseModel):
@@ -153,5 +170,6 @@ class AdminConfigUpdate(BaseModel):
 
 class AdminStatus(BaseModel):
     server_mode: bool
-    enabled: bool  # an admin password is configured (server mode)
-    admin: bool  # this browser may manage (always true in personal mode)
+    enabled: bool  # an admin password is configured
+    admin: bool  # this browser may use the dashboard (signed in, or personal mode without a password)
+    username: str | None = None

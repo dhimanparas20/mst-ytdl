@@ -305,6 +305,7 @@ class JobView(BaseModel):
     created_at: float = 0.0
     updated_at: float = 0.0
     deliver_zip: bool = False
+    owner: str | None = None  # server mode: the visitor who queued it
     delivery: DeliveryView | None = None  # server mode: ready-to-save file / ZIP
     items: list[DownloadItem] | None = None
 
@@ -350,6 +351,7 @@ class JobView(BaseModel):
             created_at=job.created_at,
             updated_at=max([job.updated_at, *(i.updated_at for i in items)]),
             deliver_zip=job.deliver_zip,
+            owner=job.owner,
             items=items if include_items else None,
         )
 

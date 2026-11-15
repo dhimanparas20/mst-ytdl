@@ -14,7 +14,7 @@ let entries = [];
 let selectMode = false;
 const selected = new Set();   // entry paths
 let playingKey = null;
-const canManage = () => !document.body.classList.contains("server-mode") || document.body.classList.contains("is-admin");
+const canManage = () => !document.body.classList.contains("server-mode");  // on a server: the admin dashboard (/admin)
 
 const iconFor = (e) => (e.is_dir ? ["folder2-open", "folder"] : VIDEO.has(e.ext) ? ["film", "video"] : AUDIO.has(e.ext) ? ["music-note-beamed", ""] : ["file-earmark", ""]);
 const isAudio = (e) => !e.is_dir && (AUDIO.has(e.ext) || VIDEO.has(e.ext));
@@ -192,7 +192,7 @@ async function onGridClick(e) {
     if (act === "play") return playEntry(entry);
     if (act === "save") return download(entry.path);
     if (act === "zip") { location.href = api.zipUrl(entry.path); return; }
-    if ((act === "rename" || act === "delete") && !canManage()) return toast("Library changes need the admin password.", "warn");
+    if ((act === "rename" || act === "delete") && !canManage()) return toast("The library is read-only here.", "warn");
     if (act === "rename") return rename(entry);
     if (act === "delete") return deleteMany([entry.path], `“${entry.name}”${entry.is_dir ? ` and its ${entry.files} file(s)` : ""}`);
     if (entry.is_dir) return loadLibrary(entry.path);
@@ -223,7 +223,7 @@ async function onBulk(action) {
   const picked = entries.filter((e) => selected.has(e.path));
   if (!paths.length) return;
   if (action === "zip") { location.href = api.zipUrl(paths); return; }
-  if ((action === "move" || action === "delete") && !canManage()) return toast("Library changes need the admin password.", "warn");
+  if ((action === "move" || action === "delete") && !canManage()) return toast("The library is read-only here.", "warn");
   if (action === "move") return moveSelected(paths);
   if (action === "delete") return deleteMany(paths, `${paths.length} selected item${paths.length === 1 ? "" : "s"}`);
   if (action === "play" || action === "queue") {

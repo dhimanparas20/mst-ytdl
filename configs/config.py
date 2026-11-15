@@ -148,7 +148,8 @@ class ServerSettings(BaseSettings):
     """
 
     mode: bool = False
-    # "scrypt:…" line printed by `uv run python main.py hash-password` (never the plain password)
+    # the /admin dashboard login: username + "scrypt:…" hash from `uv run python main.py hash-password`
+    admin_username: str = "admin"
     admin_password_hash: str | None = None
     admin_session_hours: int = Field(default=12, ge=1)
     delivery_ttl_minutes: int = Field(default=60, ge=1)
@@ -160,6 +161,9 @@ class ServerSettings(BaseSettings):
     visitor_cookie_hours: int = Field(default=24, ge=1)  # how long a visitor's own pasted cookies are kept
     share_server_cookies: bool = False  # let visitors use the server's (admin's) cookies — off: their own or none
     max_speed: int | None = None  # hard ceiling per download (bytes/sec; accepts "2M"); nobody can set more
+    maintenance: bool = False  # server mode: refuse new downloads (the message below is shown to visitors)
+    maintenance_message: str = "Downloads are paused for maintenance — please try again later."
+    analytics_days: int = Field(default=30, ge=1)  # how long daily statistics are kept
 
     @field_validator("max_speed", mode="before")
     @classmethod

@@ -22,7 +22,7 @@ from api.schemas import (
     SubmitResponse,
 )
 from models import CartRequest, DownloadItem, DownloadRequest, DownloadStatus, JobView
-from services import download_manager
+from services import analytics, download_manager
 
 router = APIRouter(tags=["downloads"])
 
@@ -68,6 +68,7 @@ def download_job_file(job_id: str, who: Owner):
     Server mode serves the prepared file (Range-capable, resumable; 409 while it is being prepared).
     """
     name, payload = download_manager.job_file(job_id, owner=who)
+    analytics.count("saves")
     if isinstance(payload, Path):
         return FileResponse(payload, filename=name, content_disposition_type="attachment")
     return StreamingResponse(payload, media_type="application/zip", headers={"Content-Disposition": attachment(name)})

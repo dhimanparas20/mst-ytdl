@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from api.deps import Owner, rate
 from api.schemas import InfoRequest
 from models import EntryInfo, MediaInfo
-from services import cookie_service, metadata_service
+from services import analytics, cookie_service, metadata_service
 
 router = APIRouter(tags=["info"])
 
@@ -19,6 +19,7 @@ def media_info(body: InfoRequest, who: Owner) -> MediaInfo:
 
     Sync on purpose: yt-dlp is blocking, so FastAPI runs this in its threadpool.
     """
+    analytics.count("previews")
     with cookie_service.scope(who):
         return metadata_service.preview(body.url, body.playlist_mode)
 
@@ -31,5 +32,6 @@ def search(
     who: Owner = None,
 ) -> list[EntryInfo]:
     """Search YouTube by text; each result carries a URL ready for ``POST /api/downloads``."""
+    analytics.search(q)
     with cookie_service.scope(who):
         return metadata_service.search(q, limit, music=music)

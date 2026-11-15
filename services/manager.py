@@ -46,6 +46,7 @@ from models import (
 )
 from modules import get_logger, human_bytes, new_id, today_str
 from modules.ytdlp_util import parse_selection, remove_partial_files
+from services.analytics import analytics
 from services.cookies import cookie_service
 from services.delivery import delivery_service
 from services.dispatch import get_dispatcher
@@ -122,6 +123,8 @@ class DownloadManager:
         if not self.server_mode:
             return req
         s = get_settings().server
+        if s.maintenance:
+            raise UnavailableError(s.maintenance_message or "Downloads are paused for maintenance")
         ceiling = speed_ceiling()
         if ceiling and req.speed_limit and req.speed_limit > ceiling:
             raise InvalidRequestError(f"The speed limit cannot exceed {human_bytes(ceiling)}/s on this server")
@@ -182,6 +185,7 @@ class DownloadManager:
 
         if not jobs:
             raise InvalidRequestError(rejected[0]["error"] if len(rejected) == 1 else "; ".join(r["error"] for r in rejected))
+        analytics.count("submitted", len(jobs))
         return [self.get_job_view(j.job_id, include_items=True) for j in jobs], rejected
 
     def _create(self, target, req, options: DownloadOptions, owner: str | None = None) -> DownloadJob:
@@ -301,6 +305,8 @@ class DownloadManager:
         for it in items:
             dispatcher.enqueue_item(it.item_id, it.token)
         logger.info(f"queued cart '{name}' ({len(items)} tracks) → job {job_id}")
+        analytics.count("submitted")
+        analytics.count("carts")
         return self.get_job_view(job_id, include_items=True), rejected
 
     # ═══════════════════════════ resolve (task body) ═══════════════════════════

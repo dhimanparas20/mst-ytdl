@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 
 from api.deps import Owner, rate
 from models import StreamInfo, SubtitleSource
-from services import cookie_service, library_service, stream_service
+from services import analytics, cookie_service, library_service, stream_service
 
 router = APIRouter(tags=["stream"])
 
@@ -18,6 +18,7 @@ def stream_info(video_id: str, who: Owner) -> StreamInfo:
     Qualities, audio-only stream and subtitle tracks for ``video_id``.
     Slow on a cold cache (~5–8 s: yt-dlp solves YouTube's JS challenge); cached ~20 min.
     """
+    analytics.count("plays")
     with cookie_service.scope(who):
         return stream_service.info(video_id)
 

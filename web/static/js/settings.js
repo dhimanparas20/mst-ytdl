@@ -140,12 +140,7 @@ async function openSettings() {
     } else { $("#s-speed").value = ""; }
     $("#myck-hours").textContent = String(c.visitor_cookie_hours || 24);
     const isServer = document.body.classList.contains("server-mode");
-    const isAdmin = document.body.classList.contains("is-admin");
-    await Promise.all([
-      fillSystem(),
-      !isServer || isAdmin ? loadCookies("server") : Promise.resolve(),
-      isServer ? loadCookies("mine") : Promise.resolve(),
-    ]);
+    await Promise.all([fillSystem(), loadCookies(isServer ? "mine" : "server")]);
   } catch (e) { toast(e.detail || e.message, "err"); }
 }
 

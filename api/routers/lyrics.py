@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 
 from api.deps import rate
 from models import Lyrics
-from services import lyrics_service
+from services import analytics, lyrics_service
 
 router = APIRouter(tags=["lyrics"])
 
@@ -18,4 +18,5 @@ def lyrics(
     duration: float | None = Query(None, ge=0, le=36000),
 ) -> Lyrics:
     """Lyrics of a track by title / artist / duration (``found=false`` + ``message`` when there are none)."""
+    analytics.count("lyrics")
     return lyrics_service.find(title, artist, duration)

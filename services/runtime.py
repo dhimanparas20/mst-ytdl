@@ -44,11 +44,17 @@ class RuntimeService:
     def key(self) -> str:
         return f"{get_key_prefix()}:RUNTIME"
 
+    @staticmethod
+    def parallel_cap() -> int:
+        """Ceiling of the parallel limit: ``TASK_MAX_PARALLEL_CAP`` (server mode: never above the worker threads)."""
+        t = get_settings().task
+        return min(t.max_parallel_cap, t.workers) if get_settings().server.mode else t.max_parallel_cap
+
     def get(self) -> RuntimeSettings:
         """Stored values layered over the .env defaults, clamped to the cap."""
         s = get_settings()
         stored = decode_hash(get_redis().hgetall(self.key))
-        cap = s.task.max_parallel_cap
+        cap = self.parallel_cap()
         max_parallel = int(stored.get("max_parallel") or s.task.max_parallel)
         speed = stored["speed_limit"] if "speed_limit" in stored else s.download.speed_limit
         folder = stored["default_folder"] if "default_folder" in stored else s.download.default_folder
@@ -80,7 +86,7 @@ class RuntimeService:
         patch: dict[str, Any] = {}
         s = get_settings()
         if max_parallel is not None:
-            cap = s.task.max_parallel_cap
+            cap = self.parallel_cap()
             if s.server.mode and int(max_parallel) > cap:  # server mode: a hard ceiling, not a silent clamp
                 raise InvalidRequestError(f"Parallel downloads are limited to {cap} by the admin")
             patch["max_parallel"] = max(1, min(int(max_parallel), cap))
