@@ -161,3 +161,13 @@ export function addSpeedSample(stats, speed) {
 
 /** Average speed of a stats object (0 when nothing was downloaded yet). */
 export const speedAverage = (stats) => (stats && stats.n ? stats.sum / stats.n : 0);
+
+/** Index of the line being sung at time ``t`` (binary search; -1 before the first). */
+export function activeLine(lines, t) {
+  let lo = 0, hi = lines.length - 1, ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (lines[mid].t <= t + 0.15) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return ans;
+}

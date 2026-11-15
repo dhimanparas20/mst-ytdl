@@ -6,6 +6,11 @@ import { $, esc, setText } from "./util.js";
 import { showRuntime } from "./queue.js";
 
 let cfg = null;
+let ckTarget = "server";  // which cookies the modal edits: "server" (admin / personal) or "mine" (server-mode visitor)
+const CK = {
+  server: { get: () => api.cookies(), save: (t) => api.saveCookies(t), clear: () => api.clearCookies(), test: () => api.testCookies() },
+  mine: { get: () => api.myCookies(), save: (t) => api.saveMyCookies(t), clear: () => api.clearMyCookies(), test: () => api.testMyCookies() },
+};
 
 function shortPath(p, n = 46) {
   if (!p) return "—";
@@ -34,31 +39,42 @@ async function fillSystem() {
 const when = (iso) => (iso ? new Date(iso).toLocaleString() : "");
 
 function cookieSummary(c) {
-  if (!c.loaded) return { ok: false, text: "No cookies loaded", detail: "Add cookies if YouTube asks you to sign in." };
+  const mine = c.scope === "visitor";
+  if (!c.loaded) return { ok: false, text: mine ? "None — you browse anonymously" : "No cookies loaded", detail: mine ? "Add yours if YouTube asks you to sign in." : "Add cookies if YouTube asks you to sign in." };
   if (c.source === "browser" && !c.count) return { ok: true, text: `Loaded from ${esc(c.browser)}`, detail: "Read from the browser profile (host only)." };
   const warn = c.warnings[0];
   const bits = [`${c.count} cookies`, c.login ? "signed in" : "not signed in"];
   if (c.expires_at) bits.push(`login expires ${when(c.expires_at)}`);
+  if (mine && c.deleted_at) bits.push(`deleted from the server ${when(c.deleted_at)}`);
   return { ok: c.login && !warn, warn: !!warn || !c.login, text: "Cookies loaded", detail: esc(warn || bits.join(" · ")) };
 }
 
-function paintCookies(c) {
+function paintCookies(c, target = ckTarget) {
   const s = cookieSummary(c);
   const icon = s.ok ? "check-circle-fill" : s.warn ? "exclamation-triangle-fill" : "x-circle-fill";
   const col = s.ok ? "ok" : s.warn ? "warn" : "bad";
   const html = `<i class="bi bi-${icon}" style="color:var(--${col})"></i> ${s.text}`;
-  $("#ck-status").innerHTML = html;
-  $("#ck-detail").innerHTML = s.detail;
+  const row = target === "mine" ? "#myck" : "#ck";
+  $(`${row}-status`).innerHTML = html;
+  $(`${row}-detail`).innerHTML = s.detail;
+  if (target !== ckTarget) return;  // the modal shows the other set
   $("#ck-modal-status").innerHTML = `${html} <span class="faint">— ${s.detail}</span>`;
-  $("#ck-path").textContent = c.path || "cookies/cookies.txt";
+  if ($("#ck-path")) $("#ck-path").textContent = c.path || "cookies/cookies.txt";
   $("#ck-clear").hidden = c.source !== "file";
 }
 
-async function loadCookies() {
-  try { paintCookies(await api.cookies()); } catch (e) { $("#ck-status").textContent = "Unavailable"; }
+async function loadCookies(target = ckTarget) {
+  try { paintCookies(await CK[target].get(), target); }
+  catch (e) { $(target === "mine" ? "#myck-status" : "#ck-status").textContent = e.status === 403 ? "Admin only" : "Unavailable"; }
 }
 
-async function openCookies() {
+async function openCookies(target = "server") {
+  ckTarget = target;
+  const mine = target === "mine";
+  $("#ck-modal-title").textContent = mine ? "Your YouTube cookies" : "YouTube cookies";
+  $("#ck-where").innerHTML = mine
+    ? `They are kept on the server for ${esc(String(cfg?.visitor_cookie_hours || 24))} hours, used only for your own downloads and playback, and never shown again.`
+    : `The values are stored on the server in <span class="mono" id="ck-path">cookies/cookies.txt</span> and are never shown again.`;
   $("#ck-text").value = "";
   $("#ck-test-result").textContent = "";
   bootstrap.Modal.getInstance($("#settings-modal"))?.hide();   // one modal at a time
@@ -68,7 +84,7 @@ async function openCookies() {
 
 async function saveCookies(btn) {
   try {
-    const c = await withBusy(btn, () => api.saveCookies($("#ck-text").value));
+    const c = await withBusy(btn, () => CK[ckTarget].save($("#ck-text").value));
     paintCookies(c);
     $("#ck-text").value = "";
     toast(c.warnings.length ? c.warnings.join(" ") : "Cookies saved — used immediately.", c.login ? "ok" : "warn", { ms: 4500 });
@@ -83,12 +99,12 @@ function paintTest(r) {
 
 async function testCookies(btn) {
   $("#ck-test-result").textContent = "Checking with YouTube…";
-  try { paintTest(await withBusy(btn, () => api.testCookies())); }
+  try { paintTest(await withBusy(btn, () => CK[ckTarget].test())); }
   catch (e) { $("#ck-test-result").textContent = e.detail || e.message; }
 }
 
 async function clearCookies(btn) {
-  try { paintCookies(await withBusy(btn, () => api.clearCookies())); toast("Cookies removed.", "ok", { ms: 2500 }); }
+  try { paintCookies(await withBusy(btn, () => CK[ckTarget].clear())); toast(ckTarget === "mine" ? "Your cookies were deleted from the server." : "Cookies removed.", "ok", { ms: 2500 }); }
   catch (e) { toast(e.detail || e.message, "err"); }
 }
 
@@ -122,7 +138,14 @@ async function openSettings() {
       $("#s-speed-unit").value = mb ? "1048576" : "1024";
       $("#s-speed").value = Math.round(rt.speed_limit / (mb ? 1048576 : 1024));
     } else { $("#s-speed").value = ""; }
-    await Promise.all([fillSystem(), loadCookies()]);
+    $("#myck-hours").textContent = String(c.visitor_cookie_hours || 24);
+    const isServer = document.body.classList.contains("server-mode");
+    const isAdmin = document.body.classList.contains("is-admin");
+    await Promise.all([
+      fillSystem(),
+      !isServer || isAdmin ? loadCookies("server") : Promise.resolve(),
+      isServer ? loadCookies("mine") : Promise.resolve(),
+    ]);
   } catch (e) { toast(e.detail || e.message, "err"); }
 }
 
@@ -149,7 +172,8 @@ export function initSettings() {
     const b = e.target.closest("[data-f]");
     if (b) { $("#s-folder").value = b.dataset.f; $("#s-folder-pick").hidden = true; }
   });
-  $("#ck-open").addEventListener("click", openCookies);
+  $("#ck-open").addEventListener("click", () => openCookies("server"));
+  $("#myck-open").addEventListener("click", () => openCookies("mine"));
   $("#ck-save").addEventListener("click", (e) => saveCookies(e.currentTarget));
   $("#ck-clear").addEventListener("click", (e) => clearCookies(e.currentTarget));
   $("#ck-test").addEventListener("click", (e) => testCookies(e.currentTarget));

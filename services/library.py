@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 import zipfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -36,6 +37,7 @@ _COVER_AUDIO = frozenset({".mp3", ".m4a", ".aac", ".opus", ".flac", ".ogg", ".wa
 _COVER_SIDECAR = (".jpg", ".jpeg", ".png", ".webp")
 _COVER_MAX_PX = 640
 _cover_gate = threading.BoundedSemaphore(3)  # a library page asks for many covers at once; ffmpeg runs 3 at a time
+_USAGE_TTL_S = 10.0  # server mode: library/disk totals are recomputed at most this often
 
 
 def _hidden(name: str) -> bool:
@@ -72,6 +74,9 @@ class LibraryService:
         root = self.root.resolve()
         target = (root / (rel or "")).resolve()
         if target != root and root not in target.parents:
+            raise InvalidRequestError("Path is outside the downloads folder")
+        if get_settings().server.mode and target != root and any(_hidden(s) for s in target.relative_to(root).parts):
+            # server mode: other visitors' deliveries (.deliveries/<job>) and temp dirs are not library content
             raise InvalidRequestError("Path is outside the downloads folder")
         return target
 
@@ -132,6 +137,10 @@ class LibraryService:
         except ValueError:
             parts = (f.name,)
         return not any(_hidden(seg) for seg in parts)
+
+    def zip_entries(self, entries: list[tuple[Path, str]]) -> Iterator[bytes]:
+        """Stream a ZIP of ``(file, name inside the archive)`` pairs (e.g. one job's finished files)."""
+        return self._stream_zip(entries)
 
     @staticmethod
     def _stream_zip(entries: list[tuple[Path, str]]) -> Iterator[bytes]:
@@ -403,6 +412,7 @@ class LibraryService:
             raise InvalidRequestError("Refusing to delete the downloads root")
         if not p.exists():
             raise NotFoundError("Not found")
+        self._usage_cache = None  # totals change
         if p.is_file():
             p.unlink()
             return 1
@@ -417,12 +427,32 @@ class LibraryService:
         return count
 
     def usage(self) -> dict[str, int]:
-        """Total files/bytes under the root (for the dashboard)."""
+        """
+        Library totals plus the disk that holds it (for the storage bar).
+
+        Returns:
+            ``files`` / ``bytes`` of the library, ``disk_total`` / ``disk_used`` / ``disk_free``
+            of its filesystem (0 when it cannot be read). Server mode caches it for a few seconds:
+            every visitor's library view asks, and walking a big library is not free.
+        """
+        if get_settings().server.mode:
+            cached = self._usage_cache
+            if cached and time.monotonic() - cached[0] < _USAGE_TTL_S:
+                return dict(cached[1])
         root = self.root
-        if not root.exists():
-            return {"files": 0, "bytes": 0}
-        files = [f for f in root.rglob("*") if self._is_media(f)]
-        return {"files": len(files), "bytes": sum(f.stat().st_size for f in files)}
+        out = {"files": 0, "bytes": 0, "disk_total": 0, "disk_used": 0, "disk_free": 0}
+        if root.exists():
+            files = [f for f in root.rglob("*") if self._is_media(f)]
+            out.update(files=len(files), bytes=sum(f.stat().st_size for f in files))
+        try:
+            du = shutil.disk_usage(root if root.exists() else root.parent)
+            out.update(disk_total=du.total, disk_used=du.used, disk_free=du.free)
+        except OSError:
+            pass
+        self._usage_cache = (time.monotonic(), out)
+        return dict(out)
+
+    _usage_cache: tuple[float, dict[str, int]] | None = None
 
 
 class _DrainBuffer(io.RawIOBase):

@@ -8,6 +8,8 @@ A task unpacks its arguments and delegates; ALL logic lives in ``services/``
     download_item_task   run one item (the runner waits for a free slot itself)
     reconcile_task       every minute: heal state a crashed worker left behind
                          + publish the worker heartbeat shown by /api/health
+    build_delivery_task  server mode: prepare a finished job's file / ZIP
+    sweep_deliveries_task every minute, server mode: delete expired deliveries
 
 Conventions:
     - ONE huey instance per process, defined here, re-exported by tasks/__init__.py
@@ -26,7 +28,7 @@ from huey import RedisHuey, crontab
 
 from configs import get_key_prefix, get_redis, get_redis_url, get_settings
 from modules import attach_server_logs, get_logger
-from services import download_manager, download_runner, set_dispatcher
+from services import admin_config, cookie_service, delivery_service, download_manager, download_runner, set_dispatcher
 
 logger = get_logger(__name__)
 
@@ -66,6 +68,7 @@ def _announce_worker() -> None:
     _announced.set()
     attach_server_logs()  # huey consumer output into logs/ as well
     try:
+        admin_config.start_watcher()  # live settings from the admin panel
         _beat()
         download_manager.reconcile()
         logger.info("huey consumer started")
@@ -92,11 +95,27 @@ def reconcile_task() -> None:
     download_manager.reconcile()
 
 
+@huey.task(name="build_delivery")
+def build_delivery_task(job_id: str) -> None:
+    """Server mode: prepare a finished job's file / ZIP (see DeliveryService.maybe_build)."""
+    delivery_service.maybe_build(job_id)
+
+
+@huey.periodic_task(crontab(minute="*"), name="sweep_deliveries")
+def sweep_deliveries_task() -> None:
+    """Server mode: delete deliveries older than SERVER_DELIVERY_TTL_MINUTES (no-op otherwise)."""
+    delivery_service.sweep()
+    cookie_service.sweep_scratch()
+
+
 class HueyDispatcher:
     """Implements ``services.dispatch.Dispatcher`` on top of Huey."""
 
     def enqueue_resolve(self, job_id: str) -> None:
         resolve_job_task(job_id)
+
+    def enqueue_delivery(self, job_id: str) -> None:
+        build_delivery_task(job_id)
 
     def enqueue_item(self, item_id: str, token: str, delay: int = 0) -> None:
         if delay > 0:

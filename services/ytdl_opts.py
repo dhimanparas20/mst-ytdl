@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import Any
 
@@ -163,7 +164,7 @@ def build_ydl_opts(
     """
     dl = get_settings().download
     suffix = " [%(id)s]" if dl.include_id_in_name else ""
-    speed = options.speed_limit or runtime_speed_limit or dl.speed_limit
+    speed = effective_speed(options.speed_limit or runtime_speed_limit or dl.speed_limit)
 
     opts: dict[str, Any] = {
         "outtmpl": {"default": f"{filename_prefix}%(title).150B{suffix}.%(ext)s"},
@@ -212,10 +213,7 @@ def build_ydl_opts(
     js = get_js_runtimes()
     if js:
         opts["js_runtimes"] = js
-    if dl.cookies_path.is_file():  # checked per call: saving cookies in the UI needs no restart
-        opts["cookiefile"] = str(dl.cookies_path)
-    if dl.cookies_from_browser:
-        opts["cookiesfrombrowser"] = (dl.cookies_from_browser,)
+    _apply_cookies(opts, dl)
     if dl.proxy:
         opts["proxy"] = dl.proxy
 
@@ -226,6 +224,55 @@ def build_ydl_opts(
     if post_hook:
         opts["post_hooks"] = [post_hook]
     return opts
+
+
+def speed_ceiling() -> int | None:
+    """Server mode: the admin's hard per-download speed limit (bytes/sec), or None."""
+    s = get_settings().server
+    return s.max_speed if s.mode and s.max_speed else None
+
+
+def effective_speed(requested: int | None) -> int | None:
+    """``requested`` held under the ceiling; no request → the ceiling itself."""
+    ceiling = speed_ceiling()
+    if ceiling is None:
+        return requested
+    return min(requested, ceiling) if requested else ceiling
+
+
+# ── cookies ──────────────────────────────────────────────────────
+#
+# Which cookies a yt-dlp call uses is decided by the caller's *scope* (``CookieService.scope``):
+#   no scope set (personal mode, admin tools)  → the server's own cookies (DL_COOKIES_FILE / browser)
+#   scope with options                         → exactly those options (a visitor's temp cookie file, or {} = none)
+# A ContextVar keeps every function signature unchanged; it is per thread / per request.
+_COOKIE_SCOPE: ContextVar[tuple[dict[str, Any], str] | None] = ContextVar("cookie_scope", default=None)
+
+
+def set_cookie_scope(options: dict[str, Any] | None, tag: str = "") -> Token:
+    """Enter a cookie scope (``options=None`` → the default, server cookies). Returns the reset token."""
+    return _COOKIE_SCOPE.set(None if options is None else (options, tag))
+
+
+def reset_cookie_scope(token: Token) -> None:
+    _COOKIE_SCOPE.reset(token)
+
+
+def cookie_scope_tag() -> str:
+    """Cache namespace of the current scope: '' (shared) unless a visitor's own cookies are in use."""
+    scope = _COOKIE_SCOPE.get()
+    return scope[1] if scope else ""
+
+
+def _apply_cookies(opts: dict[str, Any], dl) -> None:
+    scope = _COOKIE_SCOPE.get()
+    if scope is not None:
+        opts.update(scope[0])
+        return
+    if dl.cookies_path.is_file():  # checked per call: saving cookies in the UI needs no restart
+        opts["cookiefile"] = str(dl.cookies_path)
+    if dl.cookies_from_browser:
+        opts["cookiesfrombrowser"] = (dl.cookies_from_browser,)
 
 
 def base_extract_opts(*, flat: bool = False, max_items: int | None = None) -> dict[str, Any]:
@@ -251,10 +298,7 @@ def base_extract_opts(*, flat: bool = False, max_items: int | None = None) -> di
     js = get_js_runtimes()
     if js:
         opts["js_runtimes"] = js
-    if dl.cookies_path.is_file():  # checked per call: saving cookies in the UI needs no restart
-        opts["cookiefile"] = str(dl.cookies_path)
-    if dl.cookies_from_browser:
-        opts["cookiesfrombrowser"] = (dl.cookies_from_browser,)
+    _apply_cookies(opts, dl)
     if dl.proxy:
         opts["proxy"] = dl.proxy
     return opts

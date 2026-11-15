@@ -21,8 +21,11 @@ from typing import Any
 
 from configs import get_key_prefix, get_redis, get_settings
 from models import RuntimeSettings
+from modules import human_bytes
 from modules.redis_util import decode_hash, encode_hash
 from modules.ytdlp_util import sanitize_relpath
+from services.errors import InvalidRequestError
+from services.ytdl_opts import speed_ceiling
 
 SLOT_TTL_S = 45  # heartbeat window; workers refresh every ~10s
 
@@ -49,10 +52,13 @@ class RuntimeService:
         max_parallel = int(stored.get("max_parallel") or s.task.max_parallel)
         speed = stored["speed_limit"] if "speed_limit" in stored else s.download.speed_limit
         folder = stored["default_folder"] if "default_folder" in stored else s.download.default_folder
+        ceiling = speed_ceiling()
         return RuntimeSettings(
             max_parallel=max(1, min(max_parallel, cap)),
-            speed_limit=speed or None,
+            speed_limit=(min(speed, ceiling) if speed and ceiling else speed) or None,
             default_folder=self.clean_folder(folder),
+            max_parallel_cap=cap,
+            max_speed=ceiling,
         )
 
     def update(
@@ -62,17 +68,26 @@ class RuntimeService:
         Change runtime settings.
 
         Args:
-            max_parallel: new soft limit (clamped to ``1..TASK_MAX_PARALLEL_CAP``).
+            max_parallel: new soft limit (clamped to ``1..TASK_MAX_PARALLEL_CAP``; server mode: above it → error).
             speed_limit: bytes/sec per download; ``None`` removes the cap;
-                the default sentinel leaves it unchanged.
+                the default sentinel leaves it unchanged. Server mode: above ``SERVER_MAX_SPEED`` → error.
             default_folder: base folder inside downloads/ (sanitised; ``None`` / ``""`` = none);
                 the default sentinel leaves it unchanged.
+
+        Raises:
+            InvalidRequestError: server mode, a value above the admin's ceiling.
         """
         patch: dict[str, Any] = {}
+        s = get_settings()
         if max_parallel is not None:
-            cap = get_settings().task.max_parallel_cap
+            cap = s.task.max_parallel_cap
+            if s.server.mode and int(max_parallel) > cap:  # server mode: a hard ceiling, not a silent clamp
+                raise InvalidRequestError(f"Parallel downloads are limited to {cap} by the admin")
             patch["max_parallel"] = max(1, min(int(max_parallel), cap))
         if speed_limit != "unset":
+            ceiling = speed_ceiling()
+            if ceiling and speed_limit and int(speed_limit) > ceiling:
+                raise InvalidRequestError(f"The speed cap cannot exceed the admin's limit of {human_bytes(ceiling)}/s")
             patch["speed_limit"] = int(speed_limit) if speed_limit else None
         if default_folder != "unset":
             patch["default_folder"] = self.clean_folder(default_folder)

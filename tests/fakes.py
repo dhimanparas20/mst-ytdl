@@ -17,9 +17,13 @@ class FakeDispatcher:
     def __init__(self) -> None:
         self.items: list[tuple[str, str, int]] = []
         self.resolves: list[str] = []
+        self.deliveries: list[str] = []
 
     def enqueue_item(self, item_id: str, token: str, delay: int = 0) -> None:
         self.items.append((item_id, token, delay))
+
+    def enqueue_delivery(self, job_id: str) -> None:
+        self.deliveries.append(job_id)
 
     def enqueue_resolve(self, job_id: str) -> None:
         self.resolves.append(job_id)

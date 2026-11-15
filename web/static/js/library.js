@@ -4,7 +4,7 @@
 import { api } from "./api.js";
 import { fileTrack } from "./player.js";
 import { confirmDialog, promptDialog, toast, withBusy } from "./ui.js";
-import { $, esc, fmtBytes, fmtDate } from "./util.js";
+import { $, esc, fmtBytes, fmtDate, setText } from "./util.js";
 
 const AUDIO = new Set(["mp3", "m4a", "opus", "flac", "wav", "ogg", "aac"]);
 const VIDEO = new Set(["mp4", "mkv", "webm", "mov"]);
@@ -14,6 +14,7 @@ let entries = [];
 let selectMode = false;
 const selected = new Set();   // entry paths
 let playingKey = null;
+const canManage = () => !document.body.classList.contains("server-mode") || document.body.classList.contains("is-admin");
 
 const iconFor = (e) => (e.is_dir ? ["folder2-open", "folder"] : VIDEO.has(e.ext) ? ["film", "video"] : AUDIO.has(e.ext) ? ["music-note-beamed", ""] : ["file-earmark", ""]);
 const isAudio = (e) => !e.is_dir && (AUDIO.has(e.ext) || VIDEO.has(e.ext));
@@ -68,8 +69,8 @@ function render() {
         ${isPlayable(e) ? `<button class="btn-icon sm info" data-a="play" aria-label="Play" title="Play"><i class="bi bi-play-fill"></i></button>` : ""}
         ${e.is_dir ? `<button class="btn-icon sm ok" data-a="zip" aria-label="Download as ZIP" title="Download as ZIP"><i class="bi bi-file-earmark-zip"></i></button>`
                    : `<button class="btn-icon sm ok" data-a="save" aria-label="Save" title="Save"><i class="bi bi-download"></i></button>`}
-        <button class="btn-icon sm" data-a="rename" aria-label="Rename" title="Rename"><i class="bi bi-pencil"></i></button>
-        <button class="btn-icon sm bad" data-a="delete" aria-label="Delete" title="Delete"><i class="bi bi-trash3"></i></button>
+        <button class="btn-icon sm admin-ctl" data-a="rename" aria-label="Rename" title="Rename"><i class="bi bi-pencil"></i></button>
+        <button class="btn-icon sm bad admin-ctl" data-a="delete" aria-label="Delete" title="Delete"><i class="bi bi-trash3"></i></button>
       </div>
     </div>`;
   }).join("");
@@ -98,6 +99,7 @@ export async function loadLibrary(p = path) {
     render();
     const u = await api.libUsage();
     $("#lib-usage").innerHTML = `<i class="bi bi-hdd"></i>${u.files} file${u.files === 1 ? "" : "s"} · ${fmtBytes(u.bytes)}`;
+    paintStorage(u);
   } catch (e) {
     toast(e.detail || e.message, "err", { title: "Library" });
     if (p) loadLibrary("");  // folder vanished — go back to the root
@@ -105,6 +107,30 @@ export async function loadLibrary(p = path) {
 }
 
 export const currentPath = () => path;
+
+/** The animated storage bar: library share, everything else on the disk, free space. */
+function paintStorage(u) {
+  const box = $("#storage");
+  if (!u.disk_total) { box.hidden = true; return; }
+  box.hidden = false;
+  const total = u.disk_total;
+  const lib = Math.min(u.bytes, u.disk_used);
+  const pct = (n) => Math.max(0, Math.min(100, (n / total) * 100));
+  const usedPct = pct(u.disk_used);
+  // widths are set on the next frame so the bars grow from 0 (CSS transition) on first paint
+  requestAnimationFrame(() => {
+    $("#st-lib").style.width = `${pct(lib)}%`;
+    $("#st-other").style.width = `${Math.max(0, usedPct - pct(lib))}%`;
+  });
+  const bar = $("#st-bar");
+  bar.classList.toggle("warn", usedPct >= 80 && usedPct < 92);
+  bar.classList.toggle("crit", usedPct >= 92);
+  bar.setAttribute("aria-valuenow", String(Math.round(usedPct)));
+  setText($("#st-used"), fmtBytes(u.disk_used));
+  setText($("#st-total"), fmtBytes(total));
+  setText($("#st-free"), `${fmtBytes(u.disk_free)} free`);
+  setText($("#st-l-lib"), `Library ${fmtBytes(u.bytes)}`);
+}
 
 const download = (p) => {
   const a = document.createElement("a");
@@ -166,6 +192,7 @@ async function onGridClick(e) {
     if (act === "play") return playEntry(entry);
     if (act === "save") return download(entry.path);
     if (act === "zip") { location.href = api.zipUrl(entry.path); return; }
+    if ((act === "rename" || act === "delete") && !canManage()) return toast("Library changes need the admin password.", "warn");
     if (act === "rename") return rename(entry);
     if (act === "delete") return deleteMany([entry.path], `“${entry.name}”${entry.is_dir ? ` and its ${entry.files} file(s)` : ""}`);
     if (entry.is_dir) return loadLibrary(entry.path);
@@ -196,6 +223,7 @@ async function onBulk(action) {
   const picked = entries.filter((e) => selected.has(e.path));
   if (!paths.length) return;
   if (action === "zip") { location.href = api.zipUrl(paths); return; }
+  if ((action === "move" || action === "delete") && !canManage()) return toast("Library changes need the admin password.", "warn");
   if (action === "move") return moveSelected(paths);
   if (action === "delete") return deleteMany(paths, `${paths.length} selected item${paths.length === 1 ? "" : "s"}`);
   if (action === "play" || action === "queue") {

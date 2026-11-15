@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import {
   clampWindow, fadeVolume, fmtClock, makeBag, moveItem, nextIndex, pickQuality, pickSubtitle, qualityLabel,
-  addSpeedSample, speedAverage, removeItem, resizeFromCorner, shuffleRest, sleepRemaining, snapWindow,
+  activeLine, addSpeedSample, speedAverage, removeItem, resizeFromCorner, shuffleRest, sleepRemaining, snapWindow,
 } from "../static/js/queue-logic.js";
 
 const Q = [{ height: 1080, label: "1080p" }, { height: 720, label: "720p" }, { height: 480, label: "480p" }, { height: 360, label: "360p" }, { height: 144, label: "144p" }];
@@ -185,4 +185,14 @@ test("speed stats ignore idle samples and track average + peak", () => {
   assert.deepEqual(addSpeedSample({ junk: true }, 5), { sum: 5, n: 1, peak: 5 });  // corrupt saved state is replaced
   assert.equal(addSpeedSample(st, -4), st);                                       // negatives / NaN ignored
   assert.equal(addSpeedSample(st, NaN), st);
+});
+
+test("activeLine: the lyric line being sung", () => {
+  const L = [{ t: 0 }, { t: 5.2 }, { t: 9 }, { t: 9 }, { t: 14.5 }];
+  assert.equal(activeLine([], 3), -1);
+  assert.equal(activeLine([{ t: 2 }], 1), -1);          // before the first line
+  assert.equal(activeLine(L, 0), 0);
+  assert.equal(activeLine(L, 5.1), 1);                  // 150 ms lead so the highlight is not late
+  assert.equal(activeLine(L, 8.99), 3);                 // equal stamps: the last one wins
+  assert.equal(activeLine(L, 1000), 4);
 });

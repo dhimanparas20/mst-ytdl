@@ -91,10 +91,10 @@ class TestListing:
 
         monkeypatch.setattr(get_settings().download, "downloads_dir", (tmp_path / "never").resolve())
         assert lib.list_dir("") == []
-        assert lib.usage() == {"files": 0, "bytes": 0}
+        assert {k: lib.usage()[k] for k in ("files", "bytes")} == {"files": 0, "bytes": 0}
 
     def test_usage_counts_real_files_only(self, tree):
-        assert lib.usage() == {"files": 5, "bytes": 100 + 300 + 50 + 25 + 10}
+        assert {k: lib.usage()[k] for k in ("files", "bytes")} == {"files": 5, "bytes": 100 + 300 + 50 + 25 + 10}
 
 
 class TestGetFile:

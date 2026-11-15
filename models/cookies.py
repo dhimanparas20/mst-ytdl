@@ -20,6 +20,8 @@ class CookieStatus(BaseModel):
     expires_at: str | None = Field(default=None, description="Earliest expiry (ISO, UTC) among login cookies.")
     updated_at: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    scope: Literal["server", "visitor"] = "server"  # whose cookies these are (visitor = server mode, yours only)
+    deleted_at: str | None = Field(default=None, description="Visitor cookies: when they are deleted (ISO, UTC).")
 
 
 class CookieTestResult(BaseModel):

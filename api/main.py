@@ -16,11 +16,24 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import tasks  # noqa: F401  — registers the Huey dispatcher with services
-from api.routers import cookies, downloads, events, info, library, stream, system
+from api.deps import visitor_middleware
+from api.routers import admin, cookies, downloads, events, info, library, lyrics, stream, system
 from configs import BASE_DIR, get_settings
 from modules import attach_server_logs, get_logger, log_dir
 from modules.redis_util import validate_redis_connection
-from services import ConflictError, InvalidRequestError, NotFoundError, ServiceError, UpstreamError, download_manager
+from services import (
+    ConflictError,
+    ForbiddenError,
+    InvalidRequestError,
+    NotFoundError,
+    RateLimitedError,
+    ServiceError,
+    UnavailableError,
+    UpstreamError,
+    access_service,
+    admin_config,
+    download_manager,
+)
 
 logger = get_logger(__name__)
 WEB_DIR = BASE_DIR / "web"
@@ -43,9 +56,13 @@ async def lifespan(app: FastAPI):
     attach_server_logs()  # uvicorn + access lines into logs/ (uvicorn has configured its loggers by now)
     s.download.downloads_dir.mkdir(parents=True, exist_ok=True)
     try:
+        admin_config.start_watcher()  # live settings from the admin panel (shared with the worker)
         validate_redis_connection(s.redis.redis_url)
         repaired = download_manager.reconcile()
-        logger.info(f"ready — downloads in {s.download.downloads_dir} ({repaired} record(s) repaired); logs in {log_dir()}")
+        mode = "SERVER MODE (per-visitor queues, deliveries expire)" if s.server.mode else "personal mode"
+        logger.info(f"ready — {mode}; downloads in {s.download.downloads_dir} ({repaired} record(s) repaired); logs in {log_dir()}")
+        if s.server.mode and not access_service.admin_enabled:
+            logger.warning("SERVER_MODE without a valid SERVER_ADMIN_PASSWORD_HASH: library management stays locked")
     except Exception as exc:
         logger.error(f"Redis unavailable at startup: {exc}")
     yield
@@ -78,6 +95,9 @@ def create_app() -> FastAPI:
     app.add_exception_handler(ConflictError, _handler(409))
     app.add_exception_handler(InvalidRequestError, _handler(422))
     app.add_exception_handler(UpstreamError, _handler(502))
+    app.add_exception_handler(ForbiddenError, _handler(403))
+    app.add_exception_handler(RateLimitedError, _handler(429))
+    app.add_exception_handler(UnavailableError, _handler(503))
     app.add_exception_handler(ServiceError, _handler(400))
 
     async def redis_down(_: Request, exc: Exception) -> JSONResponse:
@@ -87,7 +107,10 @@ def create_app() -> FastAPI:
     app.add_exception_handler(redis.exceptions.TimeoutError, redis_down)
 
     # ── API ─────────────────────────────────────────────────────────
-    for r in (system.router, info.router, downloads.router, events.router, library.router, stream.router, cookies.router):
+    if s.server.mode:  # every browser gets an anonymous id that scopes its queue
+        app.middleware("http")(visitor_middleware)
+
+    for r in (system.router, info.router, downloads.router, events.router, library.router, stream.router, cookies.router, admin.router, lyrics.router):
         app.include_router(r, prefix="/api")
 
     # ── frontend ────────────────────────────────────────────────────

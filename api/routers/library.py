@@ -1,12 +1,16 @@
-"""Browse, stream, zip, move, rename and delete what has been downloaded."""
+"""Browse, stream, zip, move, rename and delete what has been downloaded.
+
+Server mode: browsing / playing / zipping is open to everyone; delete, move and rename need the admin.
+"""
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse, StreamingResponse
 
+from api.deps import admin_only
 from api.schemas import ActionResponse, MoveRequest, PathsRequest, RenameRequest
 from services import LibraryEntry, library_service
 
@@ -21,7 +25,7 @@ def list_library(path: str = Query("", description="Folder relative to the downl
 
 @router.get("/usage")
 def usage() -> dict[str, int]:
-    """Total files and bytes on disk."""
+    """Library files / bytes plus the total / used / free bytes of its disk (the storage bar)."""
     return library_service.usage()
 
 
@@ -56,26 +60,26 @@ def get_zip(path: Annotated[list[str], Query(description="One or more files/fold
     )
 
 
-@router.delete("", response_model=ActionResponse)
+@router.delete("", response_model=ActionResponse, dependencies=[Depends(admin_only)])
 def delete_path(path: str) -> ActionResponse:
     """Delete a file or folder from disk (cannot delete the root)."""
     n = library_service.delete(path)
     return ActionResponse(affected=n, message=f"{n} file(s) deleted")
 
 
-@router.post("/bulk-delete")
+@router.post("/bulk-delete", dependencies=[Depends(admin_only)])
 def bulk_delete(body: PathsRequest) -> dict:
     """Delete many files/folders; per-path failures are listed in ``errors``."""
     return library_service.delete_many(body.paths)
 
 
-@router.post("/move")
+@router.post("/move", dependencies=[Depends(admin_only)])
 def move(body: MoveRequest) -> dict:
     """Move files/folders into a destination folder (created if missing, never overwrites)."""
     return library_service.move(body.paths, body.dest)
 
 
-@router.post("/rename", response_model=LibraryEntry)
+@router.post("/rename", response_model=LibraryEntry, dependencies=[Depends(admin_only)])
 def rename(body: RenameRequest) -> LibraryEntry:
     """Rename a file or folder in place."""
     return library_service.rename(body.path, body.name)

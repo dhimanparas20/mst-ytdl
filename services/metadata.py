@@ -28,9 +28,10 @@ from modules.ytdlp_util import (
     validate_host,
     video_url,
 )
+from services.cache import cache_service
 from services.errors import InvalidRequestError
 from services.runtime import runtime_service
-from services.ytdl_opts import base_extract_opts, friendly_error
+from services.ytdl_opts import base_extract_opts, cookie_scope_tag, friendly_error
 
 logger = get_logger(__name__)
 
@@ -137,8 +138,25 @@ class MetadataService:
         Flat-extract a playlist/album/channel into entries.
 
         Private/deleted videos are kept but flagged ``available=False`` so the
-        UI can show why they were skipped.
+        UI can show why they were skipped. Server mode caches the result
+        (``SERVER_CACHE_MINUTES``): the resolve task re-reads what the preview just read.
         """
+        hit = cache_service.get_json("playlist", url, cookie_scope_tag())
+        if hit:
+            return PlaylistInfo(
+                title=hit["title"], uploader=hit["uploader"], thumbnail=hit["thumbnail"],
+                entries=[EntryInfo.model_validate(e) for e in hit["entries"]],
+            )
+        pl = self._expand_playlist(url)
+        cache_service.set_json(
+            "playlist",
+            {"title": pl.title, "uploader": pl.uploader, "thumbnail": pl.thumbnail,
+             "entries": [e.model_dump(mode="json") for e in pl.entries]},
+            url, cookie_scope_tag(),
+        )
+        return pl
+
+    def _expand_playlist(self, url: str) -> PlaylistInfo:
         info = self._extract(url, flat=True)
         music = "music.youtube.com" in url
         entries: list[EntryInfo] = []
@@ -187,6 +205,14 @@ class MetadataService:
         if not 2 <= len(q) <= 200:
             raise InvalidRequestError("Search text must be 2–200 characters")
         n = max(1, min(int(limit), 25))
+        hit = cache_service.get_json("search", q.lower(), n, music, cookie_scope_tag())
+        if hit is not None:
+            return [EntryInfo.model_validate(e) for e in hit]
+        out = self._search(q, n, music)
+        cache_service.set_json("search", [e.model_dump(mode="json") for e in out], q.lower(), n, music, cookie_scope_tag())
+        return out
+
+    def _search(self, q: str, n: int, music: bool) -> list[EntryInfo]:
         try:
             info = self._extract(f"ytsearch{n}:{q}", flat=True)
         except InvalidRequestError:
@@ -221,6 +247,14 @@ class MetadataService:
             InvalidRequestError: bad URL or yt-dlp could not read it.
         """
         target = self.resolve_target(url, mode)
+        hit = cache_service.get_json("preview", target.url, target.kind.value, cookie_scope_tag())
+        if hit:
+            return MediaInfo.model_validate(hit)
+        info = self._preview(target)
+        cache_service.set_json("preview", info.model_dump(mode="json"), target.url, target.kind.value, cookie_scope_tag())
+        return info
+
+    def _preview(self, target: Target) -> MediaInfo:
         try:
             if target.kind is JobKind.PLAYLIST:
                 pl = self.expand_playlist(target.url)

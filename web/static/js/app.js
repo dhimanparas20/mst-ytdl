@@ -1,10 +1,13 @@
 // Bootstrap: wires tabs, live updates, health polling and the feature modules.
 
 import { api } from "./api.js";
+import { initAdmin, refreshAdmin } from "./admin.js";
+import { initCart } from "./cart.js";
 import { initComposer, refreshFolders } from "./composer.js";
 import { initPlayer } from "./player.js";
+import { initStage } from "./stage.js";
 import { initLibrary, loadLibrary, currentPath } from "./library.js";
-import { applySnapshot, initQueue, setParCap, showRuntime } from "./queue.js";
+import { applySnapshot, initQueue, setParCap, setQueueMode, showRuntime } from "./queue.js";
 import { initSettings, renderHealth } from "./settings.js";
 import { connectEvents } from "./sse.js";
 import { enableRipple, initTooltips, toast } from "./ui.js";
@@ -34,6 +37,30 @@ function setTab(next, { focus = false } = {}) {
   if (focus || next === "new") window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+/** Top-bar badge: which mode this server runs in, and (on hover) what that means. */
+function paintMode(cfg) {
+  const server = !!cfg.server_mode;
+  const chip = $("#mode-chip");
+  chip.classList.toggle("server", server);
+  chip.querySelector("i").className = `bi bi-${server ? "globe2" : "laptop"}`;
+  $("#mode-text").textContent = server ? "Server mode" : "Local mode";
+  const ttl = cfg.delivery_ttl_minutes || 60;
+  const tip = server
+    ? `<b>Server mode</b> — running as a shared site.<ul class="mode-tip">
+        <li>Your downloads are private to this browser</li>
+        <li>Finished files are saved to your device and deleted from the server after ${ttl} min</li>
+        <li>The library is read-only; editing needs the admin password</li>
+        <li>Use your own YouTube cookies (Settings)</li></ul>
+       <b>Local mode</b> — a personal downloader: one shared queue, files stay in the server's downloads folder, everything is open.`
+    : `<b>Local mode</b> — a personal downloader.<ul class="mode-tip">
+        <li>One queue for everyone using this app</li>
+        <li>Files stay in the downloads folder and the library</li>
+        <li>Everything is open: library edits, limits, cookies</li></ul>
+       <b>Server mode</b> (<code>SERVER_MODE=true</code>) — for a public site: private queue per browser, files handed to the browser then deleted after ${ttl} min, admin-locked library, per-visitor cookies.`;
+  chip.setAttribute("data-bs-original-title", tip);
+  bootstrap.Tooltip.getInstance(chip)?.setContent({ ".tooltip-inner": tip });
+}
+
 async function pollHealth() {
   try { renderHealth(await api.health()); } catch { renderHealth(null); }
 }
@@ -53,6 +80,8 @@ async function boot() {
   initLibrary();
   initSettings();
   initPlayer();
+  initStage();
+  initAdmin();
 
   // tabs
   $("#tabs-top").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) setTab(b.dataset.tab); });
@@ -68,7 +97,12 @@ async function boot() {
   // config + runtime
   try {
     const [cfg, rt] = await Promise.all([api.config(), api.runtime()]);
+    document.body.classList.toggle("server-mode", !!cfg.server_mode);  // before anything renders
+    paintMode(cfg);
+    setQueueMode(cfg);
+    await refreshAdmin();
     initComposer(cfg);
+    initCart(cfg);
     setParCap(cfg.max_parallel_cap);
     showRuntime(rt);
     $("#s-par").max = cfg.max_parallel_cap;

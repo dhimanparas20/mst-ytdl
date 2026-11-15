@@ -32,6 +32,9 @@ from configs import get_ffmpeg_path, get_settings
 from models import ControlAction, DownloadItem, DownloadJob, DownloadStatus, JobKind
 from modules import get_logger, human_bytes, human_duration, new_id
 from modules.ytdlp_util import remove_partial_files
+from services.cache import cache_service
+from services.cookies import cookie_service
+from services.delivery import delivery_service
 from services.dispatch import get_dispatcher
 from services.runtime import runtime_service, slot_limiter
 from services.store import job_store
@@ -122,6 +125,8 @@ class _Ctx:
         self.started = time.monotonic()
         self.last_log_pct = -1.0
         self.last_log_t = 0.0
+        self.cache_hit = False  # server mode: the file came from the media cache
+        self.result: Any = None  # yt-dlp's process_ie_result() return value
 
     @property
     def tag(self) -> str:
@@ -208,10 +213,16 @@ class DownloadRunner:
         hb = _Heartbeat(item_id, holder, self.heartbeat_interval)
         hb.start()
         try:
-            return self._execute(ctx)
+            outcome = self._execute(ctx)
         finally:
             hb.stop()
             slot_limiter.release(holder)
+        if outcome in ("completed", "failed", "cancelled") and delivery_service.enabled:
+            try:  # server mode: the last item to settle prepares the file / ZIP for the browser
+                delivery_service.maybe_build(job.job_id)
+            except Exception:
+                logger.exception(f"building the delivery of job {job.job_id} failed (the sweep retries)")
+        return outcome
 
     # ── slot waiting ────────────────────────────────────────────────
 
@@ -265,10 +276,23 @@ class DownloadRunner:
         ctx.tmp_dir.mkdir(parents=True, exist_ok=True)
 
         prefix = ""
-        if job.kind is JobKind.PLAYLIST and ctx.options.numbering:
+        if job.kind.is_multi and ctx.options.numbering:
             width = max(2, len(str(max(job.playlist_size, job.total_items, item.index))))
             prefix = f"{item.index:0{width}d} - "
 
+        with cookie_service.scope(job.owner):  # server mode: the visitor's own cookies (or none)
+            self._run_ydl(ctx, outdir, prefix)
+
+        if not ctx.final:
+            ctx.final = self._final_from_result(ctx.result)
+        if not ctx.final or not Path(ctx.final).exists():
+            raise RuntimeError("Download finished but the output file could not be located")
+        if not ctx.cache_hit:
+            cache_service.store_media(ctx.info.get("id") or item.video_id, ctx.job.options, Path(ctx.final))
+
+    def _run_ydl(self, ctx: _Ctx, outdir: Path, prefix: str) -> None:
+        """Build the options and run yt-dlp — everything that talks to YouTube, inside one session."""
+        item, job = ctx.item, ctx.job
         opts = build_ydl_opts(
             ctx.options,
             outdir=outdir,
@@ -295,17 +319,31 @@ class DownloadRunner:
             if ctx.info.get("is_live") or ctx.info.get("live_status") == "is_live":
                 raise RuntimeError("Live streams are not supported")
             existing = None if ctx.options.overwrite else self._existing_output(ydl, ctx, prefix)
+            if existing is None and not ctx.options.overwrite:
+                existing = self._from_media_cache(ydl, ctx, prefix)
             if existing is not None:
-                logger.info(f"already downloaded, skipping: {existing.name}")
+                if not ctx.cache_hit:
+                    logger.info(f"already downloaded, skipping: {existing.name}")
                 ctx.final = str(existing)
                 result = None
+                ctx.result = None
             else:
                 result = ydl.process_ie_result(info, download=True)
+            ctx.result = result
 
-        if not ctx.final:
-            ctx.final = self._final_from_result(result)
-        if not ctx.final or not Path(ctx.final).exists():
-            raise RuntimeError("Download finished but the output file could not be located")
+    def _predicted_output(self, ydl: Any, ctx: _Ctx, prefix: str) -> Path | None:
+        """
+        The path of the finished file this item will produce.
+
+        yt-dlp only knows the *pre*-conversion name (e.g. ``.webm``), so we predict
+        the final one ourselves (same template + target extension).
+        """
+        suffix = " [%(id)s]" if get_settings().download.include_id_in_name else ""
+        try:
+            stem = ydl.prepare_filename(ctx.info, outtmpl=f"{prefix}%(title).150B{suffix}")
+        except Exception:
+            return None
+        return Path(f"{stem}.{ctx.job.options.format.value}")
 
     def _existing_output(self, ydl: Any, ctx: _Ctx, prefix: str) -> Path | None:
         """
@@ -313,18 +351,31 @@ class DownloadRunner:
 
         yt-dlp only looks for the *pre*-conversion name (e.g. ``.webm``), which
         is gone after an mp3 conversion — so it would re-download and re-encode.
-        We predict the final name ourselves (same template + target extension).
         """
-        suffix = " [%(id)s]" if get_settings().download.include_id_in_name else ""
+        candidate = self._predicted_output(ydl, ctx, prefix)
         try:
-            stem = ydl.prepare_filename(ctx.info, outtmpl=f"{prefix}%(title).150B{suffix}")
-        except Exception:
-            return None
-        candidate = Path(f"{stem}.{ctx.job.options.format.value}")
-        try:
-            return candidate if candidate.is_file() and candidate.stat().st_size > 0 else None
+            return candidate if candidate and candidate.is_file() and candidate.stat().st_size > 0 else None
         except OSError:
             return None
+
+    def _from_media_cache(self, ydl: Any, ctx: _Ctx, prefix: str) -> Path | None:
+        """
+        Server mode: another job produced exactly this file recently — link it into
+        this job's folder instead of downloading and converting it again.
+        """
+        src = cache_service.lookup_media(ctx.info.get("id") or ctx.item.video_id, ctx.job.options)
+        target = self._predicted_output(ydl, ctx, prefix) if src else None
+        if src is None or target is None:
+            return None
+        try:
+            if target.resolve() != src:
+                cache_service.place(src, target)
+        except OSError as exc:
+            logger.info(f"[{ctx.tag}] media cache unusable ({exc}) — downloading")
+            return None
+        ctx.cache_hit = True
+        logger.info(f"[{ctx.tag}] served from the media cache: {target.name}")
+        return target
 
     @staticmethod
     def _final_from_result(result: Any) -> str | None:

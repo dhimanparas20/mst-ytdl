@@ -41,7 +41,7 @@ from yt_dlp import YoutubeDL
 from models import QualityOption, StreamFormat, StreamInfo, SubtitleTrack
 from modules import get_logger
 from services.errors import InvalidRequestError, UpstreamError
-from services.ytdl_opts import base_extract_opts, friendly_error
+from services.ytdl_opts import base_extract_opts, cookie_scope_tag, friendly_error
 
 logger = get_logger(__name__)
 
@@ -103,10 +103,12 @@ class StreamService:
         if not _ID_RE.match(video_id or ""):
             raise InvalidRequestError("That is not a valid YouTube video id")
         now = time.monotonic()
+        tag = cookie_scope_tag()  # server mode: a visitor's own cookies get their own entries
+        key = f"{video_id}|{tag}" if tag else video_id
         with self._lock:
-            hit = self._cache.get(video_id)
+            hit = self._cache.get(key)
             if hit and now - hit[0] < _CACHE_TTL_S:
-                self._cache.move_to_end(video_id)
+                self._cache.move_to_end(key)
                 return hit[1], hit[2]
         try:
             raw = self._extract(video_id)
@@ -116,7 +118,7 @@ class StreamService:
             raise InvalidRequestError(friendly_error(exc)[0]) from exc
         info = self.build_info(video_id, raw)
         with self._lock:
-            self._cache[video_id] = (time.monotonic(), raw, info)
+            self._cache[key] = (time.monotonic(), raw, info)
             while len(self._cache) > _CACHE_MAX:
                 self._cache.popitem(last=False)
         return raw, info
@@ -129,7 +131,8 @@ class StreamService:
     def forget(self, video_id: str) -> None:
         """Drop a cached entry (its signed URLs went stale)."""
         with self._lock:
-            self._cache.pop(video_id, None)
+            for k in [k for k in self._cache if k.split("|", 1)[0] == video_id]:
+                self._cache.pop(k, None)
 
     # ── public API ──────────────────────────────────────────────────
 

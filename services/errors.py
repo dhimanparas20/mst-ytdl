@@ -21,3 +21,15 @@ class InvalidRequestError(ServiceError):
 
 class UpstreamError(ServiceError):
     """YouTube / the CDN refused or failed (stream expired, 403, network) (→ 502)."""
+
+
+class ForbiddenError(ServiceError):
+    """Server mode: the action needs the admin password (→ 403)."""
+
+
+class RateLimitedError(ServiceError):
+    """Server mode: too many requests / too many running downloads for one visitor (→ 429)."""
+
+
+class UnavailableError(ServiceError):
+    """Server mode: temporarily unable to accept work, e.g. the disk is almost full (→ 503)."""

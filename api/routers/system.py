@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from yt_dlp.version import __version__ as ytdlp_version
 
+from api.deps import admin_only
 from api.schemas import ConfigResponse, HealthResponse, RuntimeUpdate
 from configs import get_ffmpeg_path, get_js_runtimes, get_redis, get_settings
 from models import (
@@ -14,9 +15,15 @@ from models import (
     VIDEO_HEIGHTS,
     RuntimeSettings,
 )
-from services import runtime_service
+from services import access_service, runtime_service
 
 router = APIRouter(tags=["system"])
+
+
+def _downloads_dir_label() -> str:
+    """Absolute path in personal mode; just the folder name for the public (server mode)."""
+    d = get_settings().download.downloads_dir
+    return d.name if get_settings().server.mode else str(d)
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -50,7 +57,7 @@ def health() -> HealthResponse:
         ffmpeg=ffmpeg,
         js_runtime=js_name,
         yt_dlp=ytdlp_version,
-        downloads_dir=str(get_settings().download.downloads_dir),
+        downloads_dir=_downloads_dir_label(),
         detail=detail,
     )
 
@@ -73,8 +80,15 @@ def config() -> ConfigResponse:
         max_parallel_cap=s.task.max_parallel_cap,
         workers=s.task.workers,
         max_playlist_items=s.download.max_playlist_items,
-        downloads_dir=str(s.download.downloads_dir),
+        downloads_dir=_downloads_dir_label(),
         timezone=s.download.timezone,
+        server_mode=s.server.mode,
+        admin_enabled=access_service.admin_enabled,
+        delivery_ttl_minutes=s.server.delivery_ttl_minutes if s.server.mode else 0,
+        max_job_items=s.server.max_job_items if s.server.mode else 0,
+        max_active_jobs=s.server.max_active_jobs if s.server.mode else 0,
+        visitor_cookie_hours=s.server.visitor_cookie_hours if s.server.mode else 0,
+        lyrics=bool(s.download.lyrics_url),
     )
 
 
@@ -84,7 +98,7 @@ def get_runtime() -> RuntimeSettings:
     return runtime_service.get()
 
 
-@router.put("/runtime", response_model=RuntimeSettings)
+@router.put("/runtime", response_model=RuntimeSettings, dependencies=[Depends(admin_only)])
 def put_runtime(body: RuntimeUpdate) -> RuntimeSettings:
     """Change parallel limit and/or speed cap without a restart."""
     kwargs: dict = {}

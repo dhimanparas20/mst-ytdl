@@ -59,6 +59,21 @@ export const api = {
   queue: (action, deleteFiles = false) => request("POST", `/queue/${action}${qs({ delete_files: deleteFiles || undefined })}`),
 
   bulk: (ids, action) => request("POST", "/downloads/bulk", { ids, action }),
+  checkoutCart: (body) => request("POST", "/cart/checkout", body),
+  /** "Save" a whole job: the file, or a ZIP (server mode: the prepared delivery). */
+  jobFileUrl: (id) => `/api/downloads/${encodeURIComponent(id)}/file`,
+  /** One finished track of a job (owner-checked; works in both modes). */
+  itemFileUrl: (id, download = false) => `/api/items/${encodeURIComponent(id)}/file${download ? "?download=true" : ""}`,
+
+  lyrics: (title, artist, duration) => request("GET", "/lyrics" + qs({ title, artist, duration: duration ? Math.round(duration) : undefined })),
+  myCookies: () => request("GET", "/my-cookies"),
+  saveMyCookies: (text) => request("PUT", "/my-cookies", { text }),
+  clearMyCookies: () => request("DELETE", "/my-cookies"),
+  testMyCookies: () => request("POST", "/my-cookies/test"),
+
+  admin: () => request("GET", "/admin"),
+  adminLogin: (password) => request("POST", "/admin/login", { password }),
+  adminLogout: () => request("POST", "/admin/logout"),
 
   // in-app playback (YouTube streams proxied by our server — no YouTube iframe, nothing is "embed-blocked")
   streamInfo: (videoId) => request("GET", `/stream/${encodeURIComponent(videoId)}/info`),

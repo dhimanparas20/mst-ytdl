@@ -19,7 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from modules.generics import parse_size
@@ -80,6 +80,8 @@ class DownloadSettings(BaseSettings):
     cookies_from_browser: str | None = None
     default_folder: str | None = None  # base folder inside downloads/ (runtime-adjustable in the UI)
     proxy: str | None = None
+    # Lyrics provider for the player (LRCLIB API); empty = lyrics off. Only artist / title / duration are sent.
+    lyrics_url: str | None = "https://lrclib.net"
     allowed_hosts: list[str] = [
         "youtube.com",
         "www.youtube.com",
@@ -111,7 +113,7 @@ class DownloadSettings(BaseSettings):
         return parse_size(v)
 
     @field_validator(
-        "ffmpeg_path", "cookies_file", "cookies_from_browser", "proxy", "default_folder", mode="before"
+        "ffmpeg_path", "cookies_file", "cookies_from_browser", "proxy", "default_folder", "lyrics_url", mode="before"
     )
     @classmethod
     def _blank_is_none(cls, v):
@@ -134,6 +136,48 @@ class TaskSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="task_", **_COMMON)
 
 
+class ServerSettings(BaseSettings):
+    """
+    Public / multi-user deployment. Env: SERVER_*.
+
+    ``SERVER_MODE=false`` (default) keeps the personal, single-user behaviour.
+    ``true``: files are prepared per job in ``downloads/.deliveries/<job>/``, handed to the
+    browser (one file, or a ZIP), and deleted ``SERVER_DELIVERY_TTL_MINUTES`` later; every
+    visitor only sees their own queue; library edits, cookies and runtime settings need the
+    admin password.
+    """
+
+    mode: bool = False
+    # "scrypt:…" line printed by `uv run python main.py hash-password` (never the plain password)
+    admin_password_hash: str | None = None
+    admin_session_hours: int = Field(default=12, ge=1)
+    delivery_ttl_minutes: int = Field(default=60, ge=1)
+    max_active_jobs: int = Field(default=5, ge=1)  # unfinished downloads per visitor
+    max_job_items: int = Field(default=100, ge=1)  # tracks per playlist / cart
+    min_free_mb: int = Field(default=2048, ge=0)  # refuse new downloads below this much free disk
+    rate_limit_per_minute: int = Field(default=60, ge=1)  # info / search / submit calls per IP
+    cache_minutes: int = Field(default=10, ge=0)  # preview / search / playlist cache (0 = off)
+    visitor_cookie_hours: int = Field(default=24, ge=1)  # how long a visitor's own pasted cookies are kept
+    share_server_cookies: bool = False  # let visitors use the server's (admin's) cookies — off: their own or none
+    max_speed: int | None = None  # hard ceiling per download (bytes/sec; accepts "2M"); nobody can set more
+
+    @field_validator("max_speed", mode="before")
+    @classmethod
+    def _parse_max_speed(cls, v):
+        """Accept '', None, ints and human sizes like '2M'."""
+        if v is None or (isinstance(v, str) and not v.strip()) or v == 0:
+            return None
+        return parse_size(v)
+
+    model_config = SettingsConfigDict(env_prefix="server_", **_COMMON)
+
+    @field_validator("admin_password_hash", mode="before")
+    @classmethod
+    def _blank_hash_is_none(cls, v):
+        """`SERVER_ADMIN_PASSWORD_HASH=` → no admin (management stays locked)."""
+        return None if isinstance(v, str) and not v.strip() else v
+
+
 class Settings(BaseSettings):
     """Aggregated settings — access as settings.download.downloads_dir, etc."""
 
@@ -141,6 +185,7 @@ class Settings(BaseSettings):
     api: FastAPISettings = FastAPISettings()
     download: DownloadSettings = DownloadSettings()
     task: TaskSettings = TaskSettings()
+    server: ServerSettings = ServerSettings()
 
 
 @lru_cache(maxsize=1)

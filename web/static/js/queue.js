@@ -70,6 +70,28 @@ function paintSpeedStats() {
 }
 let jobsEl, emptyEl;
 let lastJobs = [];
+let serverMode = false;
+// jobs whose file / ZIP this tab already handed to the browser (so a reload never downloads twice)
+const AUTO_KEY = "mst.autosaved";
+let autoSaved = new Set();
+try { autoSaved = new Set(JSON.parse(sessionStorage.getItem(AUTO_KEY) || "[]")); } catch { /* private mode */ }
+
+/** Server mode (or not): changes how finished jobs are saved. */
+export function setQueueMode(cfg) { serverMode = !!cfg?.server_mode; }
+
+function saveUrl(url) {
+  const a = document.createElement("a");
+  a.href = url; a.download = "";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/** "54 min left" for a delivery's expiry. */
+function leftText(expiresAt) {
+  const s = Math.max(0, expiresAt - Date.now() / 1000);
+  if (s < 60) return "expires in under a minute";
+  const m = Math.round(s / 60);
+  return m >= 60 ? `available for ${Math.floor(m / 60)} h ${m % 60} min` : `available for ${m} min`;
+}
 
 // ───────────────────────── helpers ─────────────────────────
 
@@ -117,7 +139,7 @@ function cardHTML(job) {
         </div>
         <div class="job-sub">
           <span class="uploader truncate-1"></span>
-          <span class="tag click folder-tag" data-act="folder" hidden><i class="bi bi-folder2-open"></i><span></span></span>
+          <span class="tag click folder-tag local-only" data-act="folder" hidden><i class="bi bi-folder2-open"></i><span></span></span>
         </div>
         <div class="pbar"><i></i></div>
         <div class="job-meta">
@@ -134,18 +156,19 @@ function cardHTML(job) {
           <button type="button" class="btn-icon" data-bs-toggle="dropdown" aria-expanded="false" aria-label="More"><i class="bi bi-three-dots"></i></button>
           <ul class="dropdown-menu dropdown-menu-end">
             <li><button class="dropdown-item" data-act="shuffle"><i class="bi bi-shuffle"></i>Shuffle play</button></li>
-            <li><button class="dropdown-item" data-act="folder"><i class="bi bi-folder2-open"></i>Open in library</button></li>
+            <li class="local-only"><button class="dropdown-item" data-act="folder"><i class="bi bi-folder2-open"></i>Open in library</button></li>
             <li><button class="dropdown-item" data-act="copy"><i class="bi bi-link-45deg"></i>Copy link</button></li>
             <li><button class="dropdown-item" data-act="restart"><i class="bi bi-arrow-repeat"></i>Restart from scratch (replace)</button></li>
             <li><hr class="dropdown-divider"></li>
             <li><button class="dropdown-item" data-act="remove"><i class="bi bi-x-circle"></i>Remove from list</button></li>
-            <li><button class="dropdown-item text-danger" data-act="remove-files"><i class="bi bi-trash3"></i>Remove + delete files</button></li>
+            <li class="local-only"><button class="dropdown-item text-danger" data-act="remove-files"><i class="bi bi-trash3"></i>Remove + delete files</button></li>
           </ul>
         </div>
       </div></div>
     </div>
     <div class="job-error" hidden><i class="bi bi-exclamation-octagon-fill"></i><span></span></div>
     <div class="job-note" hidden></div>
+    <div class="job-delivery" hidden><button type="button" class="btn-grad" data-act="deliver"><i class="bi bi-download"></i><span>Save</span></button><span class="mono d-size"></span><span class="exp"></span></div>
     <div class="job-items" hidden><ul class="items"></ul></div>
   </article>`;
 }
@@ -161,6 +184,7 @@ function refsOf(el) {
     expander: q(".expander"), expText: q(".expander span"),
     error: q(".job-error"), errorText: q(".job-error span"), note: q(".job-note"),
     items: q(".job-items"), list: q(".items"),
+    deliv: q(".job-delivery"), delivLabel: q(".job-delivery [data-act=deliver] span"), delivSize: q(".job-delivery .d-size"), delivExp: q(".job-delivery .exp"),
     sel: q(".sel-box"),
     btn: Object.fromEntries([...QUICK, "play", "save", "zip"].map((a) => [a, q(`.job-actions > .row > [data-act="${a}"]`)])),
   };
@@ -254,11 +278,20 @@ function updateCard(c, job) {
   const done = st === "completed";
   const canPlayPlaylist = !single && (job.counts?.completed || 0) > 0 && AUDIO.has(job.options.format);
   r.btn.play.hidden = !((done && single && it0?.filepath) || canPlayPlaylist);
-  r.btn.save.hidden = !(done && single && it0?.filepath);
+  r.btn.save.hidden = serverMode || !(done && single && it0?.filepath);
   const isSel = selected.has(c.id);
   c.el.classList.toggle("selected", isSel);
   r.sel.setAttribute("aria-checked", String(isSel));
-  r.btn.zip.hidden = !(!single && ["completed", "partial"].includes(st) && job.folder);
+  r.btn.zip.hidden = serverMode || !(!single && ["completed", "partial"].includes(st) && job.folder);
+
+  // server mode: the prepared file / ZIP, with its expiry
+  const d = serverMode && TERMINAL.has(st) ? job.delivery : null;
+  r.deliv.hidden = !d;
+  if (d) {
+    setText(r.delivLabel, d.kind === "zip" ? "Save ZIP" : "Save file");
+    setText(r.delivSize, fmtBytes(d.size));
+    paintExpiry(r.delivExp, d.expires_at);
+  }
 
   // expander for playlists
   r.expander.hidden = single;
@@ -318,6 +351,11 @@ function updateRow(row, it) {
   f.btn.save.hidden = !hasFile;
 }
 
+function paintExpiry(el, expiresAt) {
+  setText(el, `· ${leftText(expiresAt)}`);
+  el.classList.toggle("soon", expiresAt - Date.now() / 1000 < 600);
+}
+
 async function loadDetail(c) {
   try {
     const full = await api.job(c.id);
@@ -348,6 +386,7 @@ export function applySnapshot({ jobs, stats }) {
 
     // toast on transitions (never for the initial load)
     const prev = lastStatus.get(job.job_id);
+    maybeAutoSave(job, prev);
     if (!firstSnapshot && prev && prev !== job.status) {
       if (job.status === "completed") toast(job.title || job.url, "ok", { title: "Download finished" });
       else if (job.status === "failed") toast(job.resolve_error || job.items?.[0]?.error || job.title, "err", { title: "Download failed" });
@@ -369,6 +408,25 @@ export function applySnapshot({ jobs, stats }) {
   renderFilters(jobs);
   if (stats) renderStats(stats);
 }
+
+/**
+ * Hand a finished job to the browser once, if this tab saw it finish:
+ * server mode — the prepared file / ZIP as soon as it is ready; personal mode — carts that asked for a ZIP.
+ */
+function maybeAutoSave(job, prev) {
+  const had = lastDelivery.get(job.job_id);  // undefined = first time this tab sees the job
+  lastDelivery.set(job.job_id, !!job.delivery);
+  if (firstSnapshot || prev === undefined || autoSaved.has(job.job_id)) return;
+  const ready = serverMode
+    ? !!job.delivery && TERMINAL.has(job.status) && had === false
+    : job.deliver_zip && ["completed", "partial"].includes(job.status) && !TERMINAL.has(prev);
+  if (!ready) return;
+  autoSaved.add(job.job_id);
+  try { sessionStorage.setItem(AUTO_KEY, JSON.stringify([...autoSaved].slice(-200))); } catch { /* ignore */ }
+  saveUrl(api.jobFileUrl(job.job_id));
+  toast(job.title || "Your download", "ok", { title: job.delivery?.kind === "zip" || job.deliver_zip ? "ZIP ready — saving" : "Saving to your device", ms: 3500 });
+}
+const lastDelivery = new Map();
 
 const visibleCards = () => [...cards.values()].filter((c) => !c.el.hidden);
 
@@ -578,7 +636,10 @@ const BULK = {
 /** Hand finished audio files to the mini player (queue = every finished audio track of the job). */
 function playFromCard(c, item, opts = {}) {
   const items = (c.items || []).filter((i) => i.status === "completed" && i.filepath);
-  const track = (i) => fileTrack({ path: i.filepath, title: i.title || c.job.title, artist: i.uploader || c.job.uploader || c.job.folder, thumb: i.thumbnail });
+  const track = (i) => fileTrack({
+    path: i.filepath, url: serverMode ? api.itemFileUrl(i.item_id) : null,
+    title: i.title || c.job.title, artist: i.uploader || c.job.uploader || (serverMode ? "" : c.job.folder), thumb: i.thumbnail,
+  });
   const audio = items.filter((i) => isMediaName(i.filepath));
   const target = item || audio[0] || items[0];
   if (!target) return toast("Nothing finished to play yet.", "info");
@@ -625,7 +686,7 @@ async function onClick(e) {
         break;
       }
       case "cancel": {
-        const many = !item && c.job.kind === "playlist" && (c.job.total_items - (c.job.counts?.completed || 0)) > 1;
+        const many = !item && c.job.kind !== "single" && (c.job.total_items - (c.job.counts?.completed || 0)) > 1;
         if (many && !(await confirmDialog({ title: "Cancel this playlist?", body: "Unfinished tracks are cancelled and their partial files deleted.", confirmText: "Cancel tracks", danger: true }))) return;
         await withBusy(btn, async () => {
           if (item) { const r = await api.itemAction(item.item_id, "cancel"); mergeItem(c, r); }
@@ -652,11 +713,16 @@ async function onClick(e) {
       case "save": {
         const it = item || c.items?.[0];
         if (!it?.filepath) return;
-        const a = document.createElement("a"); a.href = api.fileUrl(it.filepath, true); a.download = ""; document.body.appendChild(a); a.click(); a.remove();
+        saveUrl(serverMode ? api.itemFileUrl(it.item_id, true) : api.fileUrl(it.filepath, true));
         break;
       }
       case "zip":
-        location.href = api.zipUrl(c.job.folder);
+        // a cart zips exactly its own files; a playlist keeps zipping its folder as before
+        location.href = c.job.kind === "cart" ? api.jobFileUrl(c.id) : api.zipUrl(c.job.folder);
+        break;
+      case "deliver":
+        autoSaved.add(c.id);
+        saveUrl(api.jobFileUrl(c.id));
         break;
       case "remove":
         await api.remove(c.id, false); toast("Removed from list", "info", { ms: 2200 });
@@ -721,5 +787,9 @@ export function initQueue() {
   });
   renderFilters([]);
   applyFilter();
+  setInterval(() => {
+    if (!serverMode) return;
+    for (const c of cards.values()) if (!c.refs.deliv.hidden && c.job.delivery) paintExpiry(c.refs.delivExp, c.job.delivery.expires_at);
+  }, 30000);
   window.addEventListener("resize", () => { if (!$("#panel-queue").hidden) drawSpark(); });
 }

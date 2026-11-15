@@ -87,6 +87,20 @@ class ControlAction(str, Enum):
 class JobKind(str, Enum):
     SINGLE = "single"
     PLAYLIST = "playlist"
+    CART = "cart"  # hand-picked videos (the download cart), items known up front — no expansion
+
+    @property
+    def is_multi(self) -> bool:
+        """Many files in one folder (numbered, zipped together)."""
+        return self is not JobKind.SINGLE
+
+
+class DeliveryKind(str, Enum):
+    """What a server-mode job hands to the browser."""
+
+    FILE = "file"  # a single video → the file itself
+    ZIP = "zip"  # playlist / cart → one archive
+    NONE = "none"  # nothing finished (all failed / cancelled) — the record only schedules cleanup
 
 
 class PlaylistMode(str, Enum):

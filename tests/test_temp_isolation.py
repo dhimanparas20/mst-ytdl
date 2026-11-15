@@ -161,7 +161,7 @@ class TestHiddenFromLibrary:
         (downloads_dir / "Real").mkdir()
         (downloads_dir / "Real" / "song.mp3").write_bytes(b"y" * 10)
         assert [e.name for e in lib.list_dir("")] == ["Real"]
-        assert lib.usage() == {"files": 1, "bytes": 10}
+        assert {k: lib.usage()[k] for k in ("files", "bytes")} == {"files": 1, "bytes": 10}
         assert lib.list_folders() == ["Real"]
         _, chunks = lib.zip_paths(["Real", ".tmp"])
         import io

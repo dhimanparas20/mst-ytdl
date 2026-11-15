@@ -35,9 +35,9 @@ export const ytTrack = (e) => ({
   thumb: e.thumbnail, duration: e.duration, url: e.url || `https://www.youtube.com/watch?v=${e.video_id}`,
 });
 
-/** From a /api/library entry (or {path, title}). */
+/** From a /api/library entry (or {path, title}); ``url`` overrides where it streams from (server mode: /api/items/<id>/file). */
 export const fileTrack = (e) => ({
-  kind: "file", key: `file:${e.path}`, path: e.path, video: isVideoName(e.path),
+  kind: "file", key: `file:${e.path}`, path: e.path, url: e.url || null, video: isVideoName(e.path),
   title: (e.title || e.name || e.path.split("/").pop()).replace(/\.[a-z0-9]{2,4}$/i, ""),
   artist: e.artist || (e.path.includes("/") ? e.path.split("/").slice(-2, -1)[0] : "Library"),
   // audio files: the cover embedded in the tags (404 → the UI falls back to the note icon)
@@ -158,7 +158,7 @@ async function loadTrack(t, { resumeAt = 0, autoplay = true } = {}) {
   $("#vposter-img").src = t.thumb || "";
 
   if (t.kind === "file") {
-    const url = api.fileUrl(t.path);
+    const url = t.url || api.fileUrl(t.path);
     if (t.video) { E.master = V; V.src = url; } else { E.master = A; A.src = url; }
     finishAttach(my, resumeAt, autoplay);
     loadFileSubs(t, my);
@@ -248,7 +248,7 @@ function fail(message, track) {
 // ───────────────────────── subtitles ─────────────────────────
 
 async function loadFileSubs(t, my) {
-  if (!t.video) return;
+  if (!t.video || t.url) return;  // queue files streamed by item id are not library paths
   try {
     const list = await api.libSubtitles(t.path);
     if (my !== E.token) return;
@@ -447,6 +447,7 @@ function renderTrack(animate = false) {
   $("#vw-dur").textContent = $("#mp-dur").textContent;
   renderTime(0);
   document.title = `${t.title} — mst-ytdl`;
+  window.dispatchEvent(new CustomEvent("player-track", { detail: { key: t.key } }));
 }
 
 function renderControls() {
@@ -788,3 +789,13 @@ export function initPlayer() {
 }
 
 export const playerState = () => ({ ...S, current: current(), dual: E.dual, master: E.master?.id });
+
+/** What the immersive player mode (stage.js) needs: read-only state plus the transport controls. */
+export const playerApi = {
+  current, now, dur, seekTo, toggle, next, prev,
+  toggleShuffle: () => toggleShuffle(),
+  cycleRepeat: () => cycleRepeat(),
+  state: () => ({ playing: S.playing, loading: S.loading, shuffle: S.shuffle, repeat: S.repeat }),
+  /** The element that carries the sound right now (for the visualiser's analyser). */
+  soundElement: () => (E.dual || E.master === A ? A : E.master),
+};

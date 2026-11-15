@@ -30,7 +30,9 @@ A self-hosted YouTube / YouTube Music downloader. FastAPI serves the API and the
 
 Stack: Python 3.14 · FastAPI · Huey 3 · pydantic v2 + pydantic-settings · redis-py · yt-dlp (+ bundled ffmpeg via imageio-ffmpeg) · uv · Docker Compose · Tailwind (CDN, no preflight) + Bootstrap 5 + vanilla ES modules.
 
-Output layout: single video → `downloads/<today>/Title.ext`; playlist → `downloads/<Playlist name>/NN - Title.ext`.
+Output layout: single video → `downloads/<today>/Title.ext`; playlist / cart → `downloads/<Name>/NN - Title.ext`.
+
+Two modes (`SERVER_MODE`, §9c): **personal** (default — everything in this file unless stated) and **server** (public: per-visitor queues, files handed to the browser then deleted, admin-locked management). Personal-mode behaviour must never change because of server-mode code: every server branch is behind `get_settings().server.mode` (or `access_service.server_mode`).
 
 ---
 
@@ -51,7 +53,7 @@ api/ (FastAPI)  →  tasks/ (Huey)  →  services/  →  configs/  →  modules/
 | Models | `models/` | pydantic requests/records/views, enums, pure derivations | redis, yt-dlp, settings |
 | Services | `services/` | all business logic, singletons (`download_manager`, …) | huey decorators; importing `tasks`/`api` |
 | Tasks | `tasks/` | thin Huey tasks + dispatcher registration | logic — delegate to services |
-| API | `api/` | routers, schemas, error mapping, static/UI mounting | logic — call services |
+| API | `api/` | routers, schemas, error mapping, static/UI mounting; `api/deps.py` = request-scoped dependencies (`Owner`, `admin_only`, `rate(...)`, visitor middleware) | logic — call services |
 | UI | `web/` | `index.html`, `static/css`, `static/js` (ES modules) | — |
 | Tests | `tests/` | mirrors the layers | — |
 
@@ -75,8 +77,9 @@ Resolution: real env vars > `.env` (absolute path, CWD-independent) > field defa
 |---|---|---|
 | `RedisSettings` | – | `REDIS_URL`, `REDIS_KEY_PREFIX` |
 | `FastAPISettings` | `api_` | `API_HOST` (default `127.0.0.1`), `API_PORT`, `API_CORS_ORIGINS` |
-| `DownloadSettings` | `dl_` | `DL_DOWNLOADS_DIR`, `DL_TIMEZONE`, `DL_SPEED_LIMIT` (`2M`), `DL_ALLOWED_HOSTS`, `DL_COOKIES_*`, `DL_DEFAULT_FOLDER`, `DL_PLAYLIST_NUMBERING` |
+| `DownloadSettings` | `dl_` | `DL_DOWNLOADS_DIR`, `DL_TIMEZONE`, `DL_SPEED_LIMIT` (`2M`), `DL_ALLOWED_HOSTS`, `DL_COOKIES_*`, `DL_DEFAULT_FOLDER`, `DL_PLAYLIST_NUMBERING`, `DL_LYRICS_URL` |
 | `TaskSettings` | `task_` | `TASK_WORKERS`, `TASK_MAX_PARALLEL(_CAP)`, `TASK_RETRY_*`, `TASK_LOG_PROGRESS`, `TASK_IMMEDIATE` |
+| `ServerSettings` | `server_` | `SERVER_MODE` (field `mode`), `SERVER_ADMIN_PASSWORD_HASH`, `SERVER_ADMIN_SESSION_HOURS`, `SERVER_DELIVERY_TTL_MINUTES`, `SERVER_MAX_ACTIVE_JOBS`, `SERVER_MAX_JOB_ITEMS`, `SERVER_MIN_FREE_MB`, `SERVER_RATE_LIMIT_PER_MINUTE`, `SERVER_CACHE_MINUTES`, `SERVER_VISITOR_COOKIE_HOURS`, `SERVER_SHARE_SERVER_COOKIES`, `SERVER_MAX_SPEED` |
 | *(logging, not a settings class)* | – | `LOG_LEVEL`, `LOG_FORMAT`, `LOG_DIR`, `LOG_TO_FILE`, `LOG_ROLE` — read from the environment by `modules/logger.py` |
 
 Access with `get_settings()` (cached; never construct `Settings()` ad hoc). Blank `KEY=` in `.env` is treated as unset for the optional fields. In tests, mutate the nested instance with `monkeypatch.setattr(get_settings().download, "downloads_dir", path)`.
@@ -107,11 +110,16 @@ Huey workers are synchronous; API endpoints that touch Redis are plain `def` (Fa
 | `metadata.py` | `metadata_service` | URL → allow-list → single/playlist decision; `preview`, `expand_playlist`, `search`; the only place that calls yt-dlp for metadata (`_extract`) |
 | `ytdl_opts.py` | functions | Option mapping: `format_selector`, `format_sort`, `build_postprocessors`, `build_ydl_opts`, `friendly_error` |
 | `downloader.py` | `download_runner` | Runs ONE item: stale check → wait for slot → atomic claim → yt-dlp with hooks → settle (completed / paused / cancelled / failed / retry) |
-| `manager.py` | `download_manager` | Orchestration: `submit`, `resolve_job`, pause/resume/cancel/retry (item, job, bulk), delete, reads, `snapshot`, `reconcile` |
-| `cookies.py` | `cookie_service` | Web-UI cookies: `save(text)` validates Netscape text (`modules/cookies_util.py`), keeps only youtube/google domains, atomic 0600 write to `DownloadSettings.cookies_path`; `status()` (counts/flags, **never values**); `test()` = live yt-dlp check of a public video; `clear()`. `ytdl_opts` passes the file to yt-dlp only if it exists (checked per call → no restart); the API clears the stream cache on change |
-| `library.py` | `library_service` | Browse/serve/zip/delete under the downloads root; `safe_path` rejects anything escaping it |
-| `dispatch.py` | – | `Dispatcher` protocol + `set_dispatcher/get_dispatcher` |
-| `errors.py` | – | `NotFoundError` (404) · `ConflictError` (409) · `InvalidRequestError` (422) |
+| `manager.py` | `download_manager` | Orchestration: `submit`, `checkout_cart`, `resolve_job`, pause/resume/cancel/retry (item, job, bulk), delete, reads, `snapshot`, `job_file` / `item_file`, `reconcile`. Public methods take `owner` (server mode: the visitor; other visitors' records raise `NotFoundError`; `None` = unscoped) |
+| `lyrics.py` | `lyrics_service` | Player lyrics from LRCLIB (`DL_LYRICS_URL`): `clean_title` (YouTube title + channel → artist, track), exact `/api/get` then `/api/search`, `parse_lrc` (strips per-word stamps), Redis cache `P:LYRICS:<sha1>` (hits 7 d, misses 1 d); provider trouble → `found=false` + message, never an exception |
+| `cookies.py` | `cookie_service` | Server-mode visitor cookies: `save_visitor` / `visitor_status` / `clear_visitor` (`P:VCOOKIES:<visitor>`, TTL), and `scope(owner)` — the context manager every yt-dlp call of a visitor runs in. Web-UI cookies: `save(text)` validates Netscape text (`modules/cookies_util.py`), keeps only youtube/google domains, atomic 0600 write to `DownloadSettings.cookies_path`; `status()` (counts/flags, **never values**); `test()` = live yt-dlp check of a public video; `clear()`. `ytdl_opts` passes the file to yt-dlp only if it exists (checked per call → no restart); the API clears the stream cache on change |
+| `library.py` | `library_service` | Browse/serve/zip/delete under the downloads root; `safe_path` rejects anything escaping it (server mode: also any dot segment, so `.deliveries`/`.tmp` are unreachable); `usage()` = library totals + disk total/used/free (server mode: cached 10 s); `zip_entries()` streams a ZIP of given files |
+| `admin_config.py` | `admin_config` | Live settings: a whitelist of `KNOBS` (`section.field`) the admin may change without a restart; overrides in Redis `P:CONFIG` (+ `P:CONFIG:VER`), applied onto the cached `Settings` of every process by a 3 s watcher (API lifespan, Huey `on_startup`); removing one restores the `.env` value. Hard ceilings: `task.max_parallel_cap` (≤ `TASK_WORKERS`) and `server.max_speed` — enforced in `runtime.update`, `manager._server_request` and `ytdl_opts.effective_speed` |
+| `access.py` | `access_service` | Server mode: visitor ids, admin login (scrypt hash from `.env`, session token in Redis `P:ADMIN:<token>`, lockout `P:LOGINFAIL:<ip>`), `require_admin`, per-IP minute rate limits `P:RATE:…`. Every check is a no-op in personal mode |
+| `cache.py` | `cache_service` | Server mode: JSON cache for previews / searches / playlist expansions (`P:META:<sha1>`), and the media cache `P:MEDIA:<sha1(video, format, options)>` → a finished file other jobs hard-link (or copy) instead of downloading |
+| `delivery.py` | `delivery_service` | Server mode: per-job folders `.deliveries/<job>/`, `maybe_build` (file or stored ZIP once the job is terminal; NONE record when nothing finished), records `P:DELIVERY:<job>` + expiry index `P:DELIVERIES`, `purge`, `sweep` (expired, missing deliveries, idle paused jobs, orphan dirs) |
+| `dispatch.py` | – | `Dispatcher` protocol + `set_dispatcher/get_dispatcher` (`enqueue_resolve`, `enqueue_item`, `enqueue_delivery`) |
+| `errors.py` | – | `NotFoundError` (404) · `ConflictError` (409) · `InvalidRequestError` (422) · `UpstreamError` (502) · `ForbiddenError` (403) · `RateLimitedError` (429) · `UnavailableError` (503) · base `ServiceError` (400) |
 
 ### State machine (item)
 
@@ -132,15 +140,16 @@ queued ──claim──▶ downloading ──▶ processing ──▶ completed
 
 ## §6. Models (`models/`)
 
-- `enums.py` – `MediaFormat` (mp3/m4a/opus/flac/wav/mp4/mkv/webm; `.is_audio`, `.lossy_bitrate`), `DownloadStatus`, `ControlAction`, `JobKind`, `PlaylistMode`, `ResolveState`, quality tuples.
-- `download.py` – `DownloadOptions` (normalises `1080p`/`320k`, validates quality per format family), `DownloadRequest`, `DownloadJob`, `DownloadItem` (incl. `token`, `control`, `partials`), `JobView.build(job, items)` (aggregates), `MediaInfo`/`EntryInfo`, `RuntimeSettings`, `QueueStats`, `derive_job_status`.
+- `enums.py` – `MediaFormat` (mp3/m4a/opus/flac/wav/mp4/mkv/webm; `.is_audio`, `.lossy_bitrate`), `DownloadStatus`, `ControlAction`, `JobKind` (`single` / `playlist` / `cart`; `.is_multi`), `DeliveryKind` (`file` / `zip` / `none`), `PlaylistMode`, `ResolveState`, quality tuples.
+- `lyrics.py` – `LyricLine`, `Lyrics`. `cookies.py` – `CookieStatus` (+ `scope` server/visitor, `deleted_at`), `CookieTestResult`.
+- `download.py` – `OptionFields` (options shared by submit bodies), `DownloadOptions` (normalises `1080p`/`320k`, validates quality per format family), `DownloadRequest`, `CartEntry` / `CartRequest`, `DownloadJob` (incl. `owner`, `deliver_zip`), `DownloadItem` (incl. `token`, `control`, `partials`), `Delivery` / `DeliveryView`, `JobView.build(job, items)` (aggregates; `delivery` is attached by the manager), `MediaInfo`/`EntryInfo`, `RuntimeSettings`, `QueueStats`, `derive_job_status`.
 - Models are pure data + validation; no redis/yt-dlp/settings imports. Defaults from settings are applied in `DownloadManager.resolve_options`.
 
 ---
 
 ## §7. Tasks (`tasks/tasks.py`)
 
-One `RedisHuey("mst-ytdl", results=False, immediate=TASK_IMMEDIATE)`. Tasks: `resolve_job_task`, `download_item_task`, periodic `reconcile_task` (every minute; also publishes the worker heartbeat `P:WORKER:HEARTBEAT` that `/api/health` reads).
+One `RedisHuey("mst-ytdl", results=False, immediate=TASK_IMMEDIATE)`. Tasks: `resolve_job_task`, `download_item_task`, `build_delivery_task` (server mode: prepare a finished job's file / ZIP), periodic `reconcile_task` (every minute; also publishes the worker heartbeat `P:WORKER:HEARTBEAT` that `/api/health` reads), periodic `sweep_deliveries_task` (every minute; no-op unless server mode).
 
 Conventions: tasks never raise for expected outcomes (failed/paused/cancelled are *recorded*), so Huey never retries on its own — retries are scheduled by the runner (`dispatcher.enqueue_item(..., delay=TASK_RETRY_DELAY)`). `on_startup` runs once per worker thread, so it is guarded by an event.
 
@@ -151,7 +160,8 @@ Run the consumer with threads (`-k thread`); it works on Windows. `uv run python
 ## §8. Run, containers, tests
 
 - `uv run python main.py worker | api | dev`
-- `compose.yml`: `redis`, `huey`, `app` (no profiles, so `up`/`down` act on all three; `docker compose up -d redis` for dev); `./downloads` is mounted into both. `Dockerfile` installs ffmpeg + nodejs.
+- `compose.yml`: `redis`, `huey`, `app` (no profiles, so `up`/`down` act on all three; `docker compose up -d redis` for dev); `./downloads` is mounted into both, and so is the source code (`api/ configs/ models/ modules/ services/ tasks/ web/ main.py`, read-only): **code change → `docker compose restart app huey`**; `.env` change → `docker compose up -d` (recreates, no build); only dependency / Dockerfile changes need `--build`. Never mount the repo root over `/app` — it would hide the image's Linux venv (`/app/.venv`). `Dockerfile` installs ffmpeg and copies Node 22 from `node:22-slim` (§10.15).
+- `uv run python main.py hash-password` prints `SERVER_ADMIN_PASSWORD_HASH=…` for `.env`.
 - Tests: `uv run pytest` (fast; `TASK_IMMEDIATE=true` set in `tests/conftest.py`, fake Redis per test, `tests/fakes.py::FakeYDL` scripted yt-dlp) and `uv run pytest -m live` (real network). Lint: `uv run ruff check .`.
 - **Default `pytest` deselects `live`** (`addopts` in `pyproject.toml`).
 
@@ -169,7 +179,12 @@ Single page: `index.html` + `static/css/app.css` (design tokens, glass, animatio
 | `library.js` | folder browser, player modal, zip/delete |
 | `settings.js` | settings modal, health pill + "no worker" banner |
 | `sse.js` | EventSource with backoff and a polling fallback |
+| `stage.js` | immersive player mode: blurred-cover stage, scenes (vinyl / aurora / orbit / random) on a canvas driven by a Web Audio analyser, synced lyrics; reads the player only via `playerApi` + `player-track` / `player-change` events |
+| `cart.js` | download cart (localStorage `mst.cart`): add via the `cart-add` window event, modal, checkout → `POST /api/cart/checkout` |
+| `admin.js` | server-mode admin unlock; sets `body.server-mode` / `body.is-admin` |
 | `api.js`, `ui.js`, `util.js` | fetch wrapper, toasts/confirm/ripple, helpers |
+
+Mode classes: `body.server-mode` hides `.local-only` (folder pickers, overwrite, "open in library"); `body.server-mode:not(.is-admin)` hides `.admin-ctl` (library edits, parallel/speed, cookies); `.server-only` shows only in server mode. The server enforces all of it — the classes are cosmetic.
 
 Rules: never inject untrusted text with `innerHTML` without `esc()`; a snapshot carries items only for unfinished jobs and single-video jobs (finished playlists are fetched on demand); static assets are served with `Cache-Control: no-cache` (ETag revalidation).
 
@@ -185,6 +200,17 @@ Rules: never inject untrusted text with `innerHTML` without `esc()`; a snapshot 
 - `web/static/js`: `queue-logic.js` (pure, Node-tested: shuffle bag, reorder, quality pick, sleep, window geometry) · `player.js` (engine + dock + queue; dual mode = muted `<video>` + clock-master `<audio>` with drift correction) · `vwin.js` (floating window). Playback is always started from a user gesture (autoplay policy).
 - Tailwind's `.collapse {visibility: collapse}` utility clashes with Bootstrap's `.collapse` → overridden in `app.css`. Never remove that rule.
 - On Windows the venv launcher spawns the real server as a child whose command line lacks the project path — when restarting dev processes match `uvicorn api.main:app` / `huey_consumer tasks.huey`, not the path.
+
+---
+
+## §9c. Server mode (`SERVER_MODE=true`)
+
+- **Visitors**: `api.deps.visitor_middleware` (registered by `create_app` only in server mode) gives each browser an HttpOnly `ytdl_vid` cookie; routers take `who: Owner` and pass `owner=` to the manager. Jobs carry `owner`; `P:OWNER_JOBS:<owner>` is the per-visitor index next to `P:JOBS`.
+- **Where files go**: `delivery_service.folder_for(job_id[, name])` → `.deliveries/<job>` (single) or `.deliveries/<job>/<Name>` (playlist / cart). A job is a server job iff its `folder` starts with `.deliveries` — the sweep never touches anything else, even if the mode is switched later.
+- **Delivery**: the runner calls `maybe_build` after the last item settles; direct cancels go through `dispatcher.enqueue_delivery`; the sweep builds any that are missing. `GET /api/downloads/{id}/file` serves it (409 while preparing).
+- **Admin**: `access_service.require_admin(token)` via the `admin_only` dependency on library writes, cookie writes, `PUT /runtime`. Personal mode: open.
+- **Cookies**: every yt-dlp call for a visitor runs inside `cookie_service.scope(owner)`; `ytdl_opts._apply_cookies` reads the scope from a `ContextVar` (signatures unchanged). No scope = the server's cookies (personal mode, admin tools). Caches key on `cookie_scope_tag()` ('' anonymous → shared). The media-file cache stays shared (identical output).
+- **Disabled for visitors**: `folder` and `overwrite` are dropped from requests; limits per visitor / job / disk / IP (see §3).
 
 ---
 
@@ -211,3 +237,11 @@ Rules: never inject untrusted text with `innerHTML` without `esc()`; a snapshot 
 19. **Cover art**: `library_service.cover()` returns a same-stem image or ffmpeg-extracts the embedded picture (JPEG ≤640 px) into `downloads/.covers/` (hidden, keyed by path+mtime+size, 3 ffmpeg at a time). Audio files only. The UI treats a 404 as "no cover" (icon fallback); never loop on `onerror`.
 20. **All log files live in one directory** (`logs/`, `LOG_DIR`): `<role>.log`, `<role>.errors.log` (WARNING+), `access.log`. `get_logger` adds shared `RotatingFileHandler`s; uvicorn/huey reset their own handlers at start-up, so `attach_server_logs()` is called from the API lifespan and the Huey `on_startup` hook. `LOG_ROLE` comes from `main.py` / `compose.yml`. Never log to a path outside `logs/`; tests set `LOG_TO_FILE=false` (`tests/conftest.py`). Rotation is per process, so two roles never share a file.
 21. **Never use a `YoutubeDL` after its `with` block.** Leaving the block closes its HTTP session; touching `ydl` again silently builds a new session that nothing closes, so every download leaked its YouTube connections (CLOSE_WAIT) until `OSError: [Errno 24] Too many open files` (soft limit 1024) — it once happened because a log line was inserted at the wrong indentation and ended the `with` early. Keep `extract_info`, `prepare_filename` and `process_ie_result` inside it. `tests/fakes.py::FakeYDL` now fails on use-after-close, and `TestSessionLifecycle` covers every `TASK_LOG_PROGRESS` mode. Containers also get `ulimits: nofile: 65536` as a safety net. To diagnose: count `/proc/<pid>/fd` of the worker and group sockets by remote address/state.
+22. **Server-mode file layout must stay per job.** Two visitors downloading the same title at the same time would otherwise write (and the sweep delete) the same file. Never put a server job's output anywhere but `.deliveries/<job_id>/`; reuse goes through the media cache (hard link / copy into the job's own folder).
+23. **The admin hash uses `:` separators, not `$`.** Docker Compose may interpolate `$` in env files and would silently mangle a `$`-style hash.
+24. **`Content-Disposition` for user-named files must be RFC 5987** (`api.deps.attachment`): a playlist / cart name with non-Latin-1 characters crashes a plain `filename="…"` header.
+25. **Auto-save in the UI only fires for jobs this tab saw finish** (`queue.js::maybeAutoSave`, tracked across reloads in `sessionStorage`), otherwise every page load would re-download every finished job.
+26. **A media element routed through a suspended `AudioContext` goes silent.** `stage.js::hookAnalyser` wires `<audio>`/`<video>` into the analyser only after `resume()` reports `running` (and only from a user gesture); otherwise the scenes use a simulated pulse. An element can be wired once — afterwards its sound always flows through the graph, so the context is resumed on visibility changes.
+27. **Hidden preview panes pause `requestAnimationFrame`**, not just CSS animations (#13): the stage's render loop (clock, lyric highlight, visuals) does not tick there. To test it headless, replace `requestAnimationFrame` with a timer before opening the stage.
+28. **Run `uv` from Windows, not WSL, in this checkout.** `.venv` is a Windows venv (`.venv/Lib`); WSL's `uv` decides to rebuild it as a Linux venv and deletes packages under a running app (seen: `annotated_types` / `charset_normalizer` vanished, yt-dlp failed with `FileNotFoundError` in its HTTP layer). Repair with `uv sync --reinstall` from Windows.
+29. **Tests pin `SERVER_MODE=false`** (`tests/conftest.py`): a developer `.env` with `SERVER_MODE=true` otherwise leaks into every test (47 failures the first time).

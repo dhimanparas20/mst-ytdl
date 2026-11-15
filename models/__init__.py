@@ -5,6 +5,10 @@ Call sites always do ``from models import DownloadJob``, never module paths.
 
 from models.cookies import CookieStatus, CookieTestResult
 from models.download import (
+    CartEntry,
+    CartRequest,
+    Delivery,
+    DeliveryView,
     DownloadItem,
     DownloadJob,
     DownloadOptions,
@@ -12,6 +16,7 @@ from models.download import (
     EntryInfo,
     JobView,
     MediaInfo,
+    OptionFields,
     QueueStats,
     RuntimeSettings,
     derive_job_status,
@@ -22,12 +27,14 @@ from models.enums import (
     VIDEO_FORMATS,
     VIDEO_HEIGHTS,
     ControlAction,
+    DeliveryKind,
     DownloadStatus,
     JobKind,
     MediaFormat,
     PlaylistMode,
     ResolveState,
 )
+from models.lyrics import LyricLine, Lyrics
 from models.stream import (
     QualityOption,
     StreamFormat,
@@ -38,7 +45,15 @@ from models.stream import (
 
 __all__ = [
     "CookieStatus",
+    "LyricLine",
+    "Lyrics",
     "CookieTestResult",
+    "CartEntry",
+    "CartRequest",
+    "Delivery",
+    "DeliveryKind",
+    "DeliveryView",
+    "OptionFields",
     "AUDIO_BITRATES",
     "AUDIO_FORMATS",
     "VIDEO_FORMATS",

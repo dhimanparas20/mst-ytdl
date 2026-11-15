@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -101,9 +101,57 @@ class ConfigResponse(BaseModel):
     max_playlist_items: int
     downloads_dir: str
     timezone: str
+    server_mode: bool = False
+    admin_enabled: bool = False
+    delivery_ttl_minutes: int = 0  # server mode: how long a prepared file / ZIP stays downloadable
+    max_job_items: int = 0  # server mode: tracks per playlist / cart
+    max_active_jobs: int = 0  # server mode: unfinished downloads per visitor
+    visitor_cookie_hours: int = 0  # server mode: how long a visitor's own cookies are kept
+    lyrics: bool = False  # a lyrics provider is configured (DL_LYRICS_URL)
 
 
 class CookieUpload(BaseModel):
     """Body of ``PUT /cookies``: the text of a Netscape cookies.txt."""
 
     text: str = Field(max_length=600_000)
+
+
+class CartResponse(BaseModel):
+    """Result of ``POST /api/cart/checkout``."""
+
+    job: JobView
+    rejected: list[RejectedUrl] = Field(default_factory=list)
+
+
+class AdminLogin(BaseModel):
+    password: str = Field(min_length=1, max_length=200)
+
+
+class ConfigKnob(BaseModel):
+    """One live setting in the admin panel."""
+
+    key: str
+    group: str
+    label: str
+    help: str = ""
+    kind: str  # int | bool | choice | speed | text
+    min: int | None = None
+    max: int | None = None
+    choices: list[str] = Field(default_factory=list)
+    server_only: bool = False
+    value: Any = None
+    default: Any = None
+    overridden: bool = False
+
+
+class AdminConfigUpdate(BaseModel):
+    """``PUT /api/admin/config``."""
+
+    values: dict[str, Any] = Field(default_factory=dict)
+    reset: list[str] = Field(default_factory=list)
+
+
+class AdminStatus(BaseModel):
+    server_mode: bool
+    enabled: bool  # an admin password is configured (server mode)
+    admin: bool  # this browser may manage (always true in personal mode)

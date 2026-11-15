@@ -31,6 +31,16 @@ services:
       - ./downloads:/app/downloads
       - ./logs:/app/logs   # every log file of the stack lands in ./logs
       - ./cookies:/app/cookies   # put an exported cookies.txt here (see README: Cookies)
+      # source code straight from the repo (read-only): a code change needs only `docker compose restart app huey`.
+      # The venv / ffmpeg / Node stay in the image (/app/.venv is NOT mounted over) — rebuild only for new dependencies.
+      - ./api:/app/api:ro
+      - ./configs:/app/configs:ro
+      - ./models:/app/models:ro
+      - ./modules:/app/modules:ro
+      - ./services:/app/services:ro
+      - ./tasks:/app/tasks:ro
+      - ./web:/app/web:ro
+      - ./main.py:/app/main.py:ro
     depends_on:
       redis: { condition: service_healthy }
     command: huey_consumer tasks.huey -k thread -w ${TASK_WORKERS:-6}
@@ -52,6 +62,16 @@ services:
       - ./downloads:/app/downloads
       - ./cookies:/app/cookies   # put an exported cookies.txt here (see README: Cookies)
       - ./logs:/app/logs
+      # source code straight from the repo (read-only): a code change needs only `docker compose restart app huey`.
+      # The venv / ffmpeg / Node stay in the image (/app/.venv is NOT mounted over) — rebuild only for new dependencies.
+      - ./api:/app/api:ro
+      - ./configs:/app/configs:ro
+      - ./models:/app/models:ro
+      - ./modules:/app/modules:ro
+      - ./services:/app/services:ro
+      - ./tasks:/app/tasks:ro
+      - ./web:/app/web:ro
+      - ./main.py:/app/main.py:ro
     depends_on:
       redis: { condition: service_healthy }
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --proxy-headers --timeout-graceful-shutdown 2

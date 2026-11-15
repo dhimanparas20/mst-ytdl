@@ -7,6 +7,9 @@ import os
 os.environ.setdefault("TASK_IMMEDIATE", "true")  # Huey: inline + in-memory
 os.environ.setdefault("LOG_LEVEL", "WARNING")
 os.environ.setdefault("LOG_TO_FILE", "false")  # tests must not write into the real logs/ directory
+# personal mode unless a test switches it on — a developer's .env with SERVER_MODE=true must not leak in
+os.environ.setdefault("SERVER_MODE", "false")
+os.environ.setdefault("SERVER_ADMIN_PASSWORD_HASH", "")
 
 import fakeredis  # noqa: E402
 import pytest  # noqa: E402

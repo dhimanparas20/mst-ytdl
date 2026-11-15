@@ -30,8 +30,11 @@
         <div class="logo-text"><b class="grad-text">mst-ytdl</b><small>YouTube &amp; YouTube Music downloader</small></div>
       </div>
       <div class="ms-auto flex items-center gap-2">
+        <span id="mode-chip" class="tag mode-chip" tabindex="0" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="bottom" title="Mode"><i class="bi bi-laptop"></i><span class="d-none d-md-inline" id="mode-text">Local mode</span></span>
         <span id="live-chip" class="tag" data-bs-toggle="tooltip" title="Live updates"><span class="live-dot off" id="live-dot"></span><span class="d-none d-sm-inline" id="live-text">connecting</span></span>
         <button id="health-pill" class="health" type="button" data-bs-toggle="tooltip" title="Checking…"><span class="dot"></span><span class="h-text">Checking</span></button>
+        <button id="admin-chip" class="tag click admin-chip server-only" type="button" data-bs-toggle="tooltip" title="Admin: unlock library management"><i class="bi bi-lock-fill"></i><span class="d-none d-sm-inline">Admin</span></button>
+        <button id="open-cart" class="btn-icon cart-btn" type="button" aria-label="Download cart" data-bs-toggle="tooltip" title="Download cart"><i class="bi bi-bag-fill"></i><span class="cart-count" id="cart-count">0</span></button>
         <button id="open-settings" class="btn-icon" type="button" aria-label="Settings" data-bs-toggle="tooltip" title="Settings"><i class="bi bi-sliders2"></i></button>
       </div>
     </header>
@@ -97,7 +100,7 @@
               <div class="opt" id="opt-subs"><div><div class="opt-t">Subtitles</div><div class="opt-d">Download and embed (video only)</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-subs"></div></div>
               <div class="px-2 pb-2" id="subs-langs" hidden><input id="o-langs" class="form-control" placeholder="Languages, e.g. en, hi, es" value="en" style="padding:8px 12px"></div>
               <div class="opt" id="opt-num"><div><div class="opt-t">Number playlist tracks</div><div class="opt-d" id="opt-num-d">Files named “01 - Title”; off = just “Title”</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-num"></div></div>
-              <div class="opt"><div><div class="opt-t">Overwrite existing</div><div class="opt-d">Re-download even if the file exists</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-over"></div></div>
+              <div class="opt local-only"><div><div class="opt-t">Overwrite existing</div><div class="opt-d">Re-download even if the file exists</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-over"></div></div>
               <div class="px-2 py-2">
                 <div class="field-label">Playlist handling</div>
                 <div class="seg full" id="pl-seg">
@@ -112,15 +115,18 @@
                     <option value="">No limit</option><option value="262144">256 KB/s</option><option value="524288">512 KB/s</option>
                     <option value="1048576">1 MB/s</option><option value="2097152">2 MB/s</option><option value="5242880">5 MB/s</option><option value="10485760">10 MB/s</option>
                   </select></div>
-                <div><div class="field-label">Folder name</div><input id="o-folder" class="form-control" list="folder-list" placeholder="auto · e.g. Music/Rock" maxlength="120" autocomplete="off" style="padding:8px 12px" title="Created inside the downloads folder. Use / for sub-folders.">
+                <div class="local-only"><div class="field-label">Folder name</div><input id="o-folder" class="form-control" list="folder-list" placeholder="auto · e.g. Music/Rock" maxlength="120" autocomplete="off" style="padding:8px 12px" title="Created inside the downloads folder. Use / for sub-folders.">
                   <datalist id="folder-list"></datalist></div>
               </div>
             </div>
           </div>
 
-          <button id="go-btn" class="btn-grad w-100" type="button" disabled>
-            <i class="bi bi-download"></i><span id="go-label">Download</span>
-          </button>
+          <div class="flex gap-2">
+            <button id="go-btn" class="btn-grad flex-1" type="button" disabled>
+              <i class="bi bi-download"></i><span id="go-label">Download</span>
+            </button>
+            <button id="cart-add-btn" class="btn-ghost" type="button" disabled data-bs-toggle="tooltip" title="Add to the download cart"><i class="bi bi-bag-plus"></i><span class="d-none d-sm-inline">Cart</span></button>
+          </div>
           <div id="go-sub" class="text-center faint mt-2" style="font-size:12px"></div>
         </div>
       </section>
@@ -151,11 +157,11 @@
           </div>
 
           <div class="toolbar glass">
-            <div class="flex items-center gap-2" data-bs-toggle="tooltip" title="How many downloads run at the same time">
+            <div class="flex items-center gap-2 admin-ctl" data-bs-toggle="tooltip" title="How many downloads run at the same time">
               <span class="muted" style="font-size:13px"><i class="bi bi-diagram-3"></i> Parallel</span>
               <div class="stepper"><button type="button" id="par-minus" aria-label="Fewer"><i class="bi bi-dash-lg"></i></button><b id="par-val" class="mono">3</b><button type="button" id="par-plus" aria-label="More"><i class="bi bi-plus-lg"></i></button></div>
             </div>
-            <div class="flex items-center gap-2" data-bs-toggle="tooltip" title="Per-download speed cap">
+            <div class="flex items-center gap-2 admin-ctl" data-bs-toggle="tooltip" title="Per-download speed cap">
               <span class="muted" style="font-size:13px"><i class="bi bi-speedometer"></i> Cap</span>
               <select id="rt-speed" class="form-select" style="padding:5px 28px 5px 10px;font-size:13px;width:auto;border-radius:10px !important">
                 <option value="">Unlimited</option><option value="262144">256 KB/s</option><option value="524288">512 KB/s</option>
@@ -187,7 +193,7 @@
               <button class="btn-ghost sm" data-bulk="restart"><i class="bi bi-arrow-repeat"></i>Restart / replace</button>
               <button class="btn-ghost sm danger" data-bulk="cancel"><i class="bi bi-x-lg"></i>Cancel</button>
               <button class="btn-ghost sm danger" data-bulk="remove"><i class="bi bi-x-circle"></i>Remove</button>
-              <button class="btn-ghost sm danger" data-bulk="remove-files"><i class="bi bi-trash3"></i>Remove + files</button>
+              <button class="btn-ghost sm danger local-only" data-bulk="remove-files"><i class="bi bi-trash3"></i>Remove + files</button>
             </div>
           </div>
           <div id="jobs" class="jobs"></div>
@@ -200,10 +206,16 @@
 
         <!-- library -->
         <section id="panel-library" aria-label="Library" hidden>
+          <div class="glass storage mb-3" id="storage" aria-label="Storage">
+            <div class="storage-top"><span class="muted"><i class="bi bi-device-hdd"></i> Storage</span><b class="mono" id="st-used">—</b><span class="muted">used of <b class="mono" id="st-total" style="font-size:13px">—</b></span><span class="ms-auto mono" id="st-free"></span></div>
+            <div class="storage-bar" id="st-bar" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i class="lib" id="st-lib"></i><i class="other" id="st-other"></i></div>
+            <div class="storage-legend"><span class="l-lib" id="st-l-lib">Library</span><span class="l-other">Other files</span><span class="l-free">Free</span></div>
+          </div>
           <div class="glass card-pad mb-3 flex flex-wrap items-center gap-3">
             <div class="crumbs" id="crumbs"></div>
             <div class="ms-auto flex flex-wrap items-center gap-2">
               <span class="tag" id="lib-usage"><i class="bi bi-hdd"></i>—</span>
+              <span class="lock-note"><i class="bi bi-lock"></i>Read-only · <a href="#" id="lib-unlock">unlock</a></span>
               <button class="btn-ghost sm" id="lib-play-all" type="button"><i class="bi bi-play-circle"></i>Play folder</button>
               <button class="btn-ghost sm" id="lib-select-toggle" type="button" aria-pressed="false"><i class="bi bi-check2-square"></i>Select</button>
               <button class="btn-ghost sm" id="lib-refresh"><i class="bi bi-arrow-clockwise"></i>Refresh</button>
@@ -217,8 +229,8 @@
               <button class="btn-ghost sm" data-lbulk="play"><i class="bi bi-play-fill"></i>Play</button>
               <button class="btn-ghost sm" data-lbulk="queue"><i class="bi bi-text-indent-left"></i>Add to queue</button>
               <button class="btn-ghost sm" data-lbulk="zip"><i class="bi bi-file-earmark-zip"></i>ZIP</button>
-              <button class="btn-ghost sm" data-lbulk="move"><i class="bi bi-folder-symlink"></i>Move to…</button>
-              <button class="btn-ghost sm danger" data-lbulk="delete"><i class="bi bi-trash3"></i>Delete</button>
+              <button class="btn-ghost sm admin-ctl" data-lbulk="move"><i class="bi bi-folder-symlink"></i>Move to…</button>
+              <button class="btn-ghost sm danger admin-ctl" data-lbulk="delete"><i class="bi bi-trash3"></i>Delete</button>
             </div>
           </div>
           <div id="lib-grid" class="lib-grid"></div>
@@ -243,14 +255,14 @@
   <div class="modal fade" id="cookies-modal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg">
       <div class="modal-content">
-        <div class="modal-header"><h5 class="modal-title"><i class="bi bi-shield-lock me-2 grad-text"></i>YouTube cookies</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+        <div class="modal-header"><h5 class="modal-title"><i class="bi bi-shield-lock me-2 grad-text"></i><span id="ck-modal-title">YouTube cookies</span></h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
         <div class="modal-body">
           <div id="ck-modal-status" class="mb-1" style="font-size:13px"></div>
           <div id="ck-test-result" class="mb-2" style="font-size:13px" aria-live="polite"></div>
           <textarea id="ck-text" class="form-control mono" rows="12" spellcheck="false" autocomplete="off" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com&#9;TRUE&#9;/&#9;TRUE&#9;1893456000&#9;SID&#9;…" style="font-size:12px;white-space:pre;overflow:auto"></textarea>
           <div class="faint mt-2" style="font-size:12px">
             In a browser where you are signed in (a private window works best), open youtube.com and export <b>Netscape format</b> with a “cookies.txt” extension, then paste it here.
-            Only youtube.com / google.com cookies are kept. The values are stored on the server in <span class="mono" id="ck-path">cookies/cookies.txt</span> and are never shown again.
+            Only youtube.com / google.com cookies are kept. <span id="ck-where">The values are stored on the server in <span class="mono" id="ck-path">cookies/cookies.txt</span> and are never shown again.</span>
           </div>
         </div>
         <div class="modal-footer">
@@ -268,6 +280,23 @@
       <div class="modal-content">
         <div class="modal-header"><h5 class="modal-title"><i class="bi bi-sliders2 me-2 grad-text"></i>Settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
         <div class="modal-body">
+          <div class="server-only mb-3">
+            <div class="field-label">Server mode</div>
+            <div class="glass-in p-3 flex items-center gap-3" style="font-size:13px">
+              <div class="flex-grow-1" style="min-width:0"><div id="adm-status" class="fw-semibold"></div><div id="adm-detail" class="faint" style="font-size:12px"></div></div>
+              <button class="btn-ghost sm" id="adm-toggle" type="button"><i class="bi bi-unlock"></i>Unlock</button>
+            </div>
+          </div>
+          <div class="server-only mb-3">
+            <div class="field-label">Your YouTube cookies</div>
+            <div class="glass-in p-3 flex items-center gap-3" style="font-size:13px">
+              <div class="flex-grow-1" style="min-width:0"><div id="myck-status" class="fw-semibold"></div><div id="myck-detail" class="faint" style="font-size:12px"></div></div>
+              <button class="btn-ghost sm" id="myck-open" type="button"><i class="bi bi-pencil-square"></i>Edit</button>
+            </div>
+            <div class="faint mt-1" style="font-size:12px">Only if YouTube asks you to sign in. Used only for <b>your</b> downloads and playback, never shown to anyone, and deleted from the server after <span id="myck-hours">24</span> h (or when you remove them).</div>
+          </div>
+          <div class="lock-note mb-3"><i class="bi bi-lock"></i>Download limits and the server's own cookies are managed by the admin.</div>
+          <div class="admin-ctl">
           <div class="field-label">Parallel downloads <b id="s-par-val" class="mono" style="color:var(--text)">3</b></div>
           <input type="range" id="s-par" min="1" max="12" value="3">
           <div class="faint mb-3" style="font-size:12px">Hard ceiling is the number of worker threads (<span id="s-workers">–</span>); this slider is the live limit below it.</div>
@@ -276,25 +305,68 @@
             <input id="s-speed" type="number" min="0" step="50" class="form-control" placeholder="0 = unlimited">
             <select id="s-speed-unit" class="form-select" style="width:110px"><option value="1024">KB/s</option><option value="1048576">MB/s</option></select>
           </div>
-          <div class="field-label mt-3">Default download folder</div>
-          <div class="flex gap-2">
+          <div class="field-label mt-3 local-only">Default download folder</div>
+          <div class="flex gap-2 local-only">
             <input id="s-folder" class="form-control" placeholder="Not set: date / playlist folders" autocomplete="off" spellcheck="false">
             <button class="btn-ghost sm" id="s-folder-browse" type="button"><i class="bi bi-folder2-open"></i>Browse</button>
           </div>
           <div id="s-folder-pick" class="glass-in mt-2 p-1" hidden style="max-height:190px;overflow:auto;font-size:13px"></div>
-          <div class="faint mt-1" style="font-size:12px">Inside <span class="mono" id="s-root">downloads/</span>. New downloads go here unless you type a folder name in the composer. Type a new name to create one. The browser cannot open your computer's file explorer for a server folder; to move the root itself set <span class="mono">DL_DOWNLOADS_DIR</span> (Docker: the compose volume).</div>
+          <div class="faint mt-1 local-only" style="font-size:12px">Inside <span class="mono" id="s-root">downloads/</span>. New downloads go here unless you type a folder name in the composer. Type a new name to create one. The browser cannot open your computer's file explorer for a server folder; to move the root itself set <span class="mono">DL_DOWNLOADS_DIR</span> (Docker: the compose volume).</div>
           <hr style="border-color:var(--stroke);opacity:1;margin:22px 0 16px">
-          <div class="field-label">YouTube cookies</div>
+          <div class="field-label"><span><span class="server-only">Server </span>YouTube cookies</span></div>
           <div class="glass-in p-3 flex items-center gap-3" style="font-size:13px">
             <div class="flex-grow-1" style="min-width:0"><div id="ck-status" class="fw-semibold"></div><div id="ck-detail" class="faint" style="font-size:12px"></div></div>
             <button class="btn-ghost sm" id="ck-open" type="button"><i class="bi bi-pencil-square"></i>Edit</button>
           </div>
           <div class="faint mt-1 mb-3" style="font-size:12px">Fixes “Sign in to confirm you’re not a bot”. Paste a Netscape <span class="mono">cookies.txt</span>.</div>
+          </div>
           <div class="field-label">System</div>
           <div id="sys-info" class="glass-in p-3" style="font-size:13px"></div>
         </div>
-        <div class="modal-footer"><button class="btn-ghost" data-bs-dismiss="modal">Close</button><button class="btn-grad" id="s-save" style="padding:9px 18px"><i class="bi bi-check2"></i>Apply</button></div>
+        <div class="modal-footer"><button class="btn-ghost" data-bs-dismiss="modal">Close</button><button class="btn-grad admin-ctl" id="s-save" style="padding:9px 18px"><i class="bi bi-check2"></i>Apply</button></div>
       </div>
+    </div>
+  </div>
+
+  <!-- download cart -->
+  <div class="modal fade" id="cart-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title"><i class="bi bi-bag-fill me-2 grad-text"></i>Download cart <span class="faint" id="cart-head-count" style="font-size:14px"></span></h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+        <div class="modal-body">
+          <ul class="cart-list" id="cart-list"></ul>
+          <div class="cart-empty" id="cart-empty"><i class="bi bi-bag"></i>Your cart is empty.<div class="faint" style="font-size:12.5px">Add songs from search results, a playlist preview or pasted links (<i class="bi bi-bag-plus"></i>).</div></div>
+          <div id="cart-form" class="mt-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div><div class="field-label">Name</div><input id="cart-name" class="form-control" maxlength="120" placeholder="Cart · date" autocomplete="off" style="padding:8px 12px"></div>
+              <div><div class="field-label">Format</div><div class="glass-in px-3 py-2" style="font-size:13px"><b id="cart-format">MP3</b> <span class="faint">— set in “New download”</span></div></div>
+            </div>
+            <div class="opt mt-2 local-only" style="padding-left:2px"><div><div class="opt-t" style="font-size:13.5px">Download as one ZIP</div><div class="opt-d">Off: files go to <span class="mono" id="cart-folder-hint">downloads/&lt;name&gt;/</span></div></div><div class="form-check form-switch m-0"><input id="cart-zip" class="form-check-input" type="checkbox"></div></div>
+            <div class="faint mt-2 server-only" style="font-size:12.5px"><i class="bi bi-file-earmark-zip"></i> You get one ZIP to save. It stays available for <b id="cart-ttl">60</b> minutes.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-ghost danger me-auto" id="cart-clear" type="button"><i class="bi bi-trash3"></i>Empty cart</button>
+          <button class="btn-ghost" id="cart-play" type="button"><i class="bi bi-play-fill"></i>Play</button>
+          <button class="btn-grad" id="cart-go" type="button" style="padding:9px 18px"><i class="bi bi-cloud-arrow-down-fill"></i><span id="cart-go-label">Download all</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- admin login (server mode) -->
+  <div class="modal fade" id="admin-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+      <form class="modal-content" id="admin-form" autocomplete="off">
+        <div class="modal-body p-4 text-center">
+          <div style="font-size:38px" class="mb-2"><i class="bi bi-shield-lock grad-text"></i></div>
+          <h5 class="mb-1">Admin</h5>
+          <p class="muted" style="font-size:13.5px">Unlocks deleting, moving and renaming library files, download limits and YouTube cookies.</p>
+          <input id="admin-pw" class="form-control" type="password" placeholder="Admin password" autocomplete="current-password" maxlength="200" required>
+          <div id="admin-err" class="mt-2" style="font-size:13px;color:var(--bad)" aria-live="polite"></div>
+          <div class="flex gap-2 justify-center mt-3"><button type="button" class="btn-ghost" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn-grad" id="admin-ok" style="padding:9px 18px"><i class="bi bi-unlock"></i>Unlock</button></div>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -389,6 +461,8 @@
         <div class="dropup"><button class="mp-chipbtn" id="mp-rate" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Playback speed">1×</button><ul class="dropdown-menu dropdown-menu-end" id="mp-rate-menu"></ul></div>
         <div class="dropup"><button class="mp-btn" id="mp-sleep" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Sleep timer" title="Sleep timer"><i class="bi bi-moon-stars"></i></button><ul class="dropdown-menu dropdown-menu-end" id="mp-sleep-menu"></ul></div>
         <div class="mp-vol"><button class="mp-btn" id="mp-mute" type="button" aria-label="Mute" title="Mute (M)"><i class="bi bi-volume-up-fill"></i></button><input type="range" id="mp-vol" class="mp-range" min="0" max="1" step="0.01" value="0.8" aria-label="Volume"></div>
+        <button class="mp-btn" id="mp-lyrics" type="button" aria-label="Lyrics" title="Lyrics (Y)"><i class="bi bi-quote"></i></button>
+        <button class="mp-btn" id="mp-stage" type="button" aria-label="Player mode" title="Player mode (V)"><i class="bi bi-stars"></i></button>
         <button class="mp-btn" id="mp-window" type="button" aria-label="Video window" title="Show / hide video window (T)"><i class="bi bi-window-stack"></i></button>
         <button class="mp-btn" id="mp-download" type="button" aria-label="Download this" title="Download this track" hidden><i class="bi bi-download"></i></button>
         <button class="mp-btn" id="mp-queue-btn" type="button" aria-label="Queue" title="Queue (Q)"><i class="bi bi-list-ul"></i><span class="mp-count" id="mp-queue-count">0</span></button>
@@ -402,6 +476,55 @@
         <button class="btn-ghost sm danger" id="mp-q-clear" type="button"><i class="bi bi-trash3"></i>Clear</button></div>
       <ul id="mp-queue-list"></ul>
     </div>
+  </div>
+
+  <!-- ═════════ immersive player mode ═════════ -->
+  <div id="stage" class="stage" hidden role="dialog" aria-modal="true" aria-label="Player mode" data-scene="vinyl">
+    <div class="stage-bg" aria-hidden="true"><img id="st-bg-a" alt=""><img id="st-bg-b" alt=""></div>
+    <div class="stage-tint" aria-hidden="true"></div>
+    <canvas id="stage-fx" aria-hidden="true"></canvas>
+    <header class="stage-top">
+      <div class="stage-brand"><span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>Now playing</span><span class="stage-src" id="st-src"></span></div>
+      <div class="stage-actions">
+        <div class="dropdown">
+          <button type="button" class="stage-chip" data-bs-toggle="dropdown" aria-expanded="false" title="Visual theme"><i class="bi bi-palette2"></i><span id="st-scene-name">Turntable</span></button>
+          <ul class="dropdown-menu dropdown-menu-end" id="st-scene-menu">
+            <li><button class="dropdown-item" data-scene="vinyl"><i class="bi bi-vinyl-fill"></i>Turntable</button></li>
+            <li><button class="dropdown-item" data-scene="aurora"><i class="bi bi-cloud-haze2-fill"></i>Aurora</button></li>
+            <li><button class="dropdown-item" data-scene="orbit"><i class="bi bi-bullseye"></i>Orbit</button></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><button class="dropdown-item" data-scene="random"><i class="bi bi-shuffle"></i>Random each track</button></li>
+          </ul>
+        </div>
+        <button type="button" class="stage-chip" id="st-lyrics-btn" aria-pressed="false" title="Lyrics (Y)"><i class="bi bi-quote"></i><span class="d-none d-sm-inline">Lyrics</span></button>
+        <button type="button" class="stage-chip icon" id="st-close" aria-label="Close player mode" title="Close (Esc)"><i class="bi bi-chevron-down"></i></button>
+      </div>
+    </header>
+    <main class="stage-main">
+      <section class="stage-visual" aria-hidden="true">
+        <div class="turntable">
+          <div class="platter"><div class="record"><img class="record-label" id="st-label" alt=""><span class="spindle"></span></div></div>
+          <div class="tonearm"><span class="arm-base"></span><span class="arm"></span><span class="arm-head"></span></div>
+        </div>
+        <div class="orbit"><img class="orbit-art" id="st-orbit-art" alt=""></div>
+        <div class="aurora-card"><img id="st-aurora-art" alt=""></div>
+      </section>
+      <aside class="stage-lyrics" id="st-lyrics" hidden aria-label="Lyrics">
+        <div class="ly-body" id="ly-body"></div>
+        <div class="ly-src" id="ly-src"></div>
+      </aside>
+    </main>
+    <footer class="stage-foot">
+      <div class="stage-meta"><h2 class="stage-title" id="st-title"></h2><div class="stage-artist" id="st-artist"></div></div>
+      <div class="stage-seek"><span class="mono" id="st-cur">0:00</span><input type="range" id="st-seek" class="mp-range" min="0" max="1000" value="0" aria-label="Seek"><span class="mono" id="st-dur">0:00</span></div>
+      <div class="stage-ctl">
+        <button type="button" class="st-btn" id="st-shuffle" aria-label="Shuffle"><i class="bi bi-shuffle"></i></button>
+        <button type="button" class="st-btn" id="st-prev" aria-label="Previous"><i class="bi bi-skip-backward-fill"></i></button>
+        <button type="button" class="st-play" id="st-play" aria-label="Play"><i class="bi bi-play-fill"></i></button>
+        <button type="button" class="st-btn" id="st-next" aria-label="Next"><i class="bi bi-skip-forward-fill"></i></button>
+        <button type="button" class="st-btn" id="st-repeat" aria-label="Repeat"><i class="bi bi-repeat"></i></button>
+      </div>
+    </footer>
   </div>
 
   <div class="toast-container position-fixed top-0 end-0 p-3" id="toasts"></div>

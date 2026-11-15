@@ -20,6 +20,7 @@ from models.enums import (
     AUDIO_BITRATES,
     VIDEO_HEIGHTS,
     ControlAction,
+    DeliveryKind,
     DownloadStatus,
     JobKind,
     MediaFormat,
@@ -78,15 +79,11 @@ class DownloadOptions(BaseModel):
         return self
 
 
-class DownloadRequest(BaseModel):
-    """Body of ``POST /api/downloads``. ``None`` options fall back to settings."""
+class OptionFields(BaseModel):
+    """Download options shared by every submit body. ``None`` falls back to settings."""
 
-    urls: list[str] = Field(min_length=1, max_length=50)
     format: MediaFormat | None = None
     quality: str | None = None
-    playlist_mode: PlaylistMode = PlaylistMode.AUTO
-    # 1-based selection inside a playlist: "1,3,5-7" (None = everything)
-    playlist_items: str | None = Field(default=None, max_length=500)
     embed_metadata: bool | None = None
     embed_thumbnail: bool | None = None
     subtitles: bool = False
@@ -94,8 +91,17 @@ class DownloadRequest(BaseModel):
     speed_limit: int | None = Field(default=None, ge=1)
     overwrite: bool = False
     numbering: bool | None = None  # "01 - " prefix on playlist files; None = DL_PLAYLIST_NUMBERING
-    # Override the destination folder name (sanitised, relative to downloads/)
+    # Override the destination folder name (sanitised, relative to downloads/); ignored in server mode
     folder: str | None = Field(default=None, max_length=120)
+
+
+class DownloadRequest(OptionFields):
+    """Body of ``POST /api/downloads``."""
+
+    urls: list[str] = Field(min_length=1, max_length=50)
+    playlist_mode: PlaylistMode = PlaylistMode.AUTO
+    # 1-based selection inside a playlist: "1,3,5-7" (None = everything)
+    playlist_items: str | None = Field(default=None, max_length=500)
 
     @field_validator("urls", mode="before")
     @classmethod
@@ -112,6 +118,37 @@ class DownloadRequest(BaseModel):
                 out.append(u)
         if not out:
             raise ValueError("Provide at least one URL")
+        return out
+
+
+class CartEntry(BaseModel):
+    """One video in the download cart (metadata is optional: it only pre-fills the queue)."""
+
+    url: str = Field(min_length=1, max_length=2000)
+    title: str = Field(default="", max_length=300)
+    uploader: str | None = Field(default=None, max_length=200)
+    thumbnail: str | None = Field(default=None, max_length=2000)
+    duration: float | None = None
+
+
+class CartRequest(OptionFields):
+    """Body of ``POST /api/cart/checkout``: many hand-picked videos as ONE job (one folder / one ZIP)."""
+
+    entries: list[CartEntry] = Field(min_length=1, max_length=500)
+    name: str | None = Field(default=None, max_length=120)  # folder / ZIP name (default: "Cart <date>")
+    zip: bool = False  # local mode: offer the finished files as one ZIP (server mode always zips)
+
+    @field_validator("entries", mode="after")
+    @classmethod
+    def _dedupe(cls, v: list[CartEntry]) -> list[CartEntry]:
+        """The same URL twice is one download."""
+        seen: set[str] = set()
+        out = []
+        for e in v:
+            key = e.url.strip()
+            if key not in seen:
+                seen.add(key)
+                out.append(e)
         return out
 
 
@@ -137,8 +174,33 @@ class DownloadJob(BaseModel):
     resolve_state: ResolveState = ResolveState.READY
     resolve_error: str | None = None
     total_items: int = 0
+    owner: str | None = None  # server mode: the visitor who queued it (None = personal mode)
+    deliver_zip: bool = False  # hand the finished files over as one ZIP (cart option / server mode)
     created_at: float = 0.0
     updated_at: float = 0.0
+
+
+class Delivery(BaseModel):
+    """Server mode: what a finished job hands to the browser, and when it is deleted."""
+
+    job_id: str
+    owner: str | None = None
+    kind: DeliveryKind = DeliveryKind.NONE
+    path: str = ""  # relative to the downloads dir ('' for kind=none)
+    name: str = ""  # file name offered to the browser
+    size: int = 0
+    signature: str = ""  # which finished files it was built from (a retry that adds files → rebuild)
+    ready_at: float = 0.0
+    expires_at: float = 0.0
+
+
+class DeliveryView(BaseModel):
+    """The part of :class:`Delivery` the UI sees."""
+
+    kind: DeliveryKind
+    name: str
+    size: int
+    expires_at: float
 
 
 class DownloadItem(BaseModel):
@@ -242,6 +304,8 @@ class JobView(BaseModel):
     total_bytes: int | None = None
     created_at: float = 0.0
     updated_at: float = 0.0
+    deliver_zip: bool = False
+    delivery: DeliveryView | None = None  # server mode: ready-to-save file / ZIP
     items: list[DownloadItem] | None = None
 
     @classmethod
@@ -285,6 +349,7 @@ class JobView(BaseModel):
             total_bytes=sum(totals) if totals else None,
             created_at=job.created_at,
             updated_at=max([job.updated_at, *(i.updated_at for i in items)]),
+            deliver_zip=job.deliver_zip,
             items=items if include_items else None,
         )
 
@@ -326,6 +391,8 @@ class RuntimeSettings(BaseModel):
     max_parallel: int = Field(ge=1)
     speed_limit: int | None = Field(default=None, ge=1)  # bytes/sec per download
     default_folder: str | None = None  # base folder inside downloads/ for new downloads (None = date / playlist folders)
+    max_parallel_cap: int | None = None  # ceiling for max_parallel (read-only here; the admin panel sets it)
+    max_speed: int | None = None  # server mode: hard speed ceiling (bytes/sec) — nothing may exceed it
 
 
 class QueueStats(BaseModel):

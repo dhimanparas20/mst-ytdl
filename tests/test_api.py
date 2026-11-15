@@ -81,7 +81,8 @@ class TestSystem:
         r = client.put("/api/runtime", json={"max_parallel": 2}).json()
         assert r["max_parallel"] == 2
         r = client.put("/api/runtime", json={"speed_limit": 500000}).json()
-        assert r == {"max_parallel": 2, "speed_limit": 500000, "default_folder": None}  # earlier change kept
+        assert r == {"max_parallel": 2, "speed_limit": 500000, "default_folder": None,  # earlier change kept
+                     "max_parallel_cap": 12, "max_speed": None}  # ceilings are reported (personal mode: no speed ceiling)
         r = client.put("/api/runtime", json={"speed_limit": None}).json()
         assert r["speed_limit"] is None and r["max_parallel"] == 2
         assert client.put("/api/runtime", json={}).json()["max_parallel"] == 2  # empty body = no-op
@@ -376,7 +377,9 @@ class TestLibraryApi:
         assert client.get("/api/library", params={"path": path}).status_code == 422  # a file, not a folder
 
     def test_usage(self, client, seeded):
-        assert client.get("/api/library/usage").json() == {"files": 1, "bytes": 1000}
+        u = client.get("/api/library/usage").json()
+        assert (u["files"], u["bytes"]) == (1, 1000)
+        assert u["disk_total"] >= u["disk_used"] > 0 and u["disk_free"] > 0  # the storage bar
 
     def test_file_inline_and_download(self, client, seeded):
         path, _ = seeded

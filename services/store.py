@@ -6,6 +6,7 @@ Layout (``P`` = ``REDIS_KEY_PREFIX``, default ``YTDL``):
     P:ITEM:<item_id>        HASH   DownloadItem, one JSON value per field
     P:JOB_ITEMS:<job_id>    LIST   item ids in playlist order
     P:JOBS                  ZSET   job ids scored by created_at (newest first)
+    P:OWNER_JOBS:<owner>    ZSET   server mode: the same, per visitor (their private queue)
 
 Concurrency model:
     * Records are HASHES so a worker patches ``percent``/``speed`` with one
@@ -65,6 +66,13 @@ class JobStore:
     def jobs_index(self) -> str:
         return f"{self.prefix}:JOBS"
 
+    def owner_index(self, owner: str) -> str:
+        return f"{self.prefix}:OWNER_JOBS:{owner}"
+
+    def _index(self, owner: str | None) -> str:
+        """The global index, or one visitor's (server mode)."""
+        return self.owner_index(owner) if owner else self.jobs_index
+
     @property
     def ttl(self) -> int:
         return get_settings().task.record_retention_days * 86400
@@ -80,6 +88,9 @@ class JobStore:
         pipe.hset(self.job_key(job.job_id), mapping=encode_hash(job.model_dump(mode="json")))
         pipe.expire(self.job_key(job.job_id), self.ttl)
         pipe.zadd(self.jobs_index, {job.job_id: job.created_at})
+        if job.owner:
+            pipe.zadd(self.owner_index(job.owner), {job.job_id: job.created_at})
+            pipe.expire(self.owner_index(job.owner), self.ttl)
         pipe.execute()
         return job
 
@@ -132,9 +143,10 @@ class JobStore:
 
         return self.r.transaction(txn, key, value_from_callable=True)
 
-    def list_job_ids(self, offset: int = 0, limit: int = 50) -> list[str]:
-        """Newest-first job ids (index entries whose hash expired are pruned)."""
-        ids = self.r.zrevrange(self.jobs_index, offset, offset + limit - 1)
+    def list_job_ids(self, offset: int = 0, limit: int = 50, owner: str | None = None) -> list[str]:
+        """Newest-first job ids, all or one visitor's (index entries whose hash expired are pruned)."""
+        index = self._index(owner)
+        ids = self.r.zrevrange(index, offset, offset + limit - 1)
         if not ids:
             return []
         pipe = self.r.pipeline(transaction=False)
@@ -143,21 +155,24 @@ class JobStore:
         alive = pipe.execute()
         dead = [jid for jid, ok in zip(ids, alive) if not ok]
         if dead:
-            self.r.zrem(self.jobs_index, *dead)
+            self.r.zrem(index, *dead)
         return [jid for jid, ok in zip(ids, alive) if ok]
 
-    def count_jobs(self) -> int:
-        return int(self.r.zcard(self.jobs_index))
+    def count_jobs(self, owner: str | None = None) -> int:
+        return int(self.r.zcard(self._index(owner)))
 
     def delete_job(self, job_id: str) -> int:
         """Remove a job with all its items. Returns how many items were removed."""
         item_ids = self.r.lrange(self.job_items_key(job_id), 0, -1)
+        owner = decode_hash({"v": self.r.hget(self.job_key(job_id), "owner") or "null"}).get("v")
         pipe = self.r.pipeline()
         for iid in item_ids:
             pipe.delete(self.item_key(iid))
         pipe.delete(self.job_items_key(job_id))
         pipe.delete(self.job_key(job_id))
         pipe.zrem(self.jobs_index, job_id)
+        if owner:
+            pipe.zrem(self.owner_index(owner), job_id)
         pipe.execute()
         return len(item_ids)
 

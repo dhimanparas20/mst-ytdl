@@ -21,6 +21,9 @@ class Dispatcher(Protocol):
     def enqueue_item(self, item_id: str, token: str, delay: int = 0) -> None:
         """Run one item's download (``delay`` seconds from now)."""
 
+    def enqueue_delivery(self, job_id: str) -> None:
+        """Server mode: build the job's file / ZIP once it has finished (e.g. after a cancel)."""
+
 
 _dispatcher: Dispatcher | None = None
 

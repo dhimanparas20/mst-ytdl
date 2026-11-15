@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
+from api.deps import Owner
 from modules import get_logger
 from services import download_manager
 
@@ -24,7 +25,7 @@ def _frame(event: str, payload: str) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
-async def _stream(request: Request):
+async def _stream(request: Request, owner: str | None = None):
     """
     Yield a ``snapshot`` frame whenever the queue changed, a comment keep-alive
     otherwise. Identical consecutive snapshots are suppressed, so an idle
@@ -37,7 +38,8 @@ async def _stream(request: Request):
         if await request.is_disconnected():
             return
         try:
-            views, stats = await run_in_threadpool(download_manager.snapshot)
+            snap = (lambda: download_manager.snapshot(owner=owner)) if owner else download_manager.snapshot
+            views, stats = await run_in_threadpool(snap)
             payload = json.dumps(
                 {
                     "jobs": [v.model_dump(mode="json") for v in views],
@@ -62,10 +64,10 @@ async def _stream(request: Request):
 
 
 @router.get("/events")
-async def events(request: Request) -> StreamingResponse:
-    """``text/event-stream`` of queue snapshots (``snapshot``) and problems (``problem``)."""
+async def events(request: Request, who: Owner) -> StreamingResponse:
+    """``text/event-stream`` of queue snapshots (``snapshot``) and problems (``problem``); server mode: your queue only."""
     return StreamingResponse(
-        _stream(request),
+        _stream(request, who),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
