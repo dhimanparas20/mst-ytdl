@@ -7,6 +7,8 @@ import { $ } from "./util.js";
 
 const GOOGLE_SIGN_IN = "https://accounts.google.com/ServiceLogin?service=youtube&continue=" + encodeURIComponent("https://www.youtube.com/");
 const POLL_MS = 2000;
+// phones and tablets cannot run the extension: they hand the code to a computer instead (the code works from any device)
+const isPhone = () => window.matchMedia("(pointer: coarse) and (max-width: 1024px)").matches;
 let timer = null;
 let cfg = null;
 
@@ -42,7 +44,7 @@ function poll(code, until) {
 }
 
 async function start(btn) {
-  window.open(GOOGLE_SIGN_IN, "_blank", "noopener");  // first, synchronously: it must stay inside the click or pop-up blockers stop it
+  if (!isPhone()) window.open(GOOGLE_SIGN_IN, "_blank", "noopener");  // first, synchronously: it must stay inside the click or pop-up blockers stop it
   try {
     const r = await withBusy(btn, () => api.connectStart());
     $("#cn-code").textContent = r.code;
@@ -63,6 +65,7 @@ export function initConnect() {
     reset();
     try { cfg = await api.config(); } catch { /* keep the box hidden */ }
     $("#connect-box").hidden = $("#cn-or").hidden = !cfg?.connect_enabled;
+    $("#connect-box").classList.toggle("is-phone", isPhone());
     $("#cn-hours").textContent = cfg?.server_mode ? String(cfg.visitor_cookie_hours || 24) : "";
     $("#cn-keep").hidden = !cfg?.server_mode;
   });

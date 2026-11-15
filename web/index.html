@@ -275,14 +275,16 @@
               <span id="cn-keep">This gives the server your YouTube session for <span id="cn-hours">24</span> hours, then it is deleted.</span></div>
             <button class="btn-grad" id="cn-go" type="button"><i class="bi bi-google me-2"></i>Sign in with Google</button>
             <ol id="cn-steps" class="cn-steps small" hidden>
-              <li>Sign in to YouTube in the tab that just opened (<a id="cn-open" href="#" target="_blank" rel="noopener">open it again</a>).</li>
-              <li>Install the extension once: <a href="/api/connect/extension.zip" download>download it</a>, unzip it, open <span class="mono">chrome://extensions</span>
+              <li class="cn-phone-only">Phones can't run the extension, so use a computer that is signed in to YouTube: open this site there, press <b>Sign in with Google</b> once to get the extension, install it, then enter the code below in it. It links <b>this phone</b>, using that computer's YouTube account.</li>
+              <li class="cn-desktop-only">Sign in to YouTube in the tab that just opened (<a id="cn-open" href="#" target="_blank" rel="noopener">open it again</a>).</li>
+              <li class="cn-desktop-only">Install the extension once: <a href="/api/connect/extension.zip" download>download it</a>, unzip it, open <span class="mono">chrome://extensions</span>
                 (Edge: <span class="mono">edge://extensions</span>), turn on <b>Developer mode</b>, press <b>Load unpacked</b> and pick the unzipped folder (the one that directly contains <span class="mono">manifest.json</span>).</li>
               <li>Click the extension, enter this code and press <b>Connect</b>:
                 <span class="cn-code mono" id="cn-code">----</span>
                 <button class="btn-icon sm" id="cn-copy" type="button" aria-label="Copy the code" title="Copy"><i class="bi bi-clipboard"></i></button>
                 <div class="faint">Server: <span class="mono" id="cn-server"></span></div></li>
             </ol>
+            <div class="faint small mt-2 cn-desktop-only">Linking a phone or tablet? Press Sign in on the phone, then enter the code it shows in this extension: it works from any device.</div>
             <div id="cn-status" class="small mt-2" aria-live="polite"></div>
           </div>
           <div class="faint small mb-2" id="cn-or" hidden>Or paste your cookies yourself:</div>

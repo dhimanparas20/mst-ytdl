@@ -92,6 +92,7 @@ Statistics are Redis counters kept `SERVER_ANALYTICS_DAYS` (30); visitors (anony
 
 Nobody has to export a cookies file. In the cookies dialog, **Sign in with Google** opens Google's sign-in in a new tab and shows a one-time code. A small extension (`extension/`, Chrome / Edge / Brave / Firefox) sends that browser's YouTube cookies to your server when the person presses *Connect* and types the code. No Google Cloud project, OAuth client or secret is involved: a web page cannot read another site's cookies, so the extension does the one step the page can't.
 
+- **Phones and tablets** can't run the extension. There the dialog skips the Google tab and tells the person to enter the code on a computer that is signed in to YouTube: the code belongs to the browser that asked for it, so that computer's extension links the phone (using the computer's YouTube account).
 - The site serves the extension at `/api/connect/extension.zip`, already pointed at this server. It is installed once (unzip, *Load unpacked*).
 - The code is single use, lasts 10 minutes and is bound to the visitor that asked for it; uploads are rate-limited per IP.
 - Cookies are stored exactly like pasted ones (server mode: that visitor only, deleted after `SERVER_VISITOR_COOKIE_HOURS`). Logged-out cookies are refused and never overwrite working ones.
