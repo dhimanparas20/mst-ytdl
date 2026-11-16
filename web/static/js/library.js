@@ -41,7 +41,14 @@ function renderCrumbs() {
 function render() {
   renderCrumbs();
   const grid = $("#lib-grid");
-  $("#lib-empty").hidden = entries.length > 0;
+  const empty = entries.length === 0;
+  $("#lib-empty").hidden = !empty;
+  // Server mode: the shared host browser is secondary — collapse noise when it's empty at root.
+  const host = $("#lib-host");
+  if (host && document.body.classList.contains("server-mode")) {
+    const atRoot = !path;
+    host.classList.toggle("is-empty-root", atRoot && empty);
+  }
   $("#lib-play-all").hidden = !entries.some(isAudio);
   grid.innerHTML = entries.map((e, i) => {
     const [icon, cls] = iconFor(e);
@@ -80,7 +87,7 @@ function setSelectMode(on) {
 }
 
 export async function loadLibrary(p = path) {
-  loadDeliveries();  // server mode: "My downloads" on top (no-op otherwise)
+  loadDeliveries();  // server mode: "Your downloads" on top (no-op otherwise)
   try {
     entries = await api.library(p);
     path = p;

@@ -32,7 +32,7 @@ from api.routers import (
     system,
 )
 from configs import BASE_DIR, get_settings
-from modules import attach_server_logs, get_logger, log_dir
+from modules import attach_server_logs, get_logger, log_dir, quiet_health_access
 from modules.redis_util import validate_redis_connection
 from services import (
     ConflictError,
@@ -48,6 +48,7 @@ from services import (
     download_manager,
 )
 
+quiet_health_access()  # before uvicorn starts serving: hide successful /api/health polls from the console
 logger = get_logger(__name__)
 WEB_DIR = BASE_DIR / "web"
 

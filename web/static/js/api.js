@@ -74,7 +74,7 @@ export const api = {
 
   /** "Save" a whole job: the file, or a ZIP (server mode: the prepared delivery). */
   jobFileUrl: (id) => `/api/downloads/${encodeURIComponent(id)}/file`,
-  /** Server mode: the visitor's ready files ("My downloads"); personal mode: always []. */
+  /** Server mode: the visitor's ready files ("Your downloads"); personal mode: always []. */
   deliveries: () => request("GET", "/deliveries"),
   /** "Keep longer": one more delivery TTL, once per file (404 gone, 409 already used). */
   extendDelivery: (id) => request("POST", `/deliveries/${encodeURIComponent(id)}/extend`),

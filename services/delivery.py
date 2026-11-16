@@ -135,25 +135,42 @@ class DeliveryService:
         """
         The files / ZIPs a visitor can still save ("My downloads"), soonest-to-expire first.
 
-        Only ready deliveries count: no NONE records, nothing expired and nothing whose file is gone.
-        ``owner=None`` lists every delivery (unscoped admin use). Personal mode has none.
+        Driven by the delivery index (``P:DELIVERIES``) and filtered by ``Delivery.owner`` (falling
+        back to the job's owner for older records). Only ready deliveries count: no NONE records,
+        nothing expired and nothing whose file is gone. ``owner=None`` lists every delivery
+        (unscoped). Personal mode has none.
         """
         if not self.enabled:
             return []
         now = time.time() if now is None else now
-        jobs = job_store.get_jobs(job_store.list_job_ids(0, 1000, owner))
-        jobs = [j for j in jobs if self.is_delivery_folder(j.folder)]
-        records = self.get_many([j.job_id for j in jobs])
-        items = job_store.get_items_many([j.job_id for j in jobs if j.job_id in records])
+        # Active (not-yet-expired) ids from the index — survives "clear finished" as long as the
+        # delivery record is kept; also merge the visitor's job list for records missing from the index.
+        jids = list(get_redis().zrangebyscore(self._index, now, "+inf"))
+        seen = set(jids)
+        for jid in job_store.list_job_ids(0, 1000, owner):
+            if jid not in seen:
+                jids.append(jid)
+                seen.add(jid)
+        records = self.get_many(jids)
+        jobs = {j.job_id: j for j in job_store.get_jobs(list(records.keys()))}
+        items = job_store.get_items_many([jid for jid in records if jid in jobs])
         out: list[DeliveryEntry] = []
-        for j in jobs:
-            d = records.get(j.job_id)
-            if d is None or d.kind is DeliveryKind.NONE or d.expires_at <= now or self.file_path(d) is None:
+        for jid, d in records.items():
+            if d.kind is DeliveryKind.NONE or d.expires_at <= now or self.file_path(d) is None:
                 continue
-            status = derive_job_status(j.resolve_state, j.resolve_error, items[j.job_id])
+            job = jobs.get(jid)
+            rec_owner = d.owner if d.owner is not None else (job.owner if job else None)
+            if owner is not None and rec_owner != owner:
+                continue
+            if job is not None:
+                status = derive_job_status(job.resolve_state, job.resolve_error, items.get(jid) or [])
+                title = job.title or d.name
+            else:
+                status = DownloadStatus.COMPLETED
+                title = d.name
             out.append(
                 DeliveryEntry(
-                    job_id=j.job_id, title=j.title or d.name, kind=d.kind, name=d.name, size=d.size,
+                    job_id=jid, title=title, kind=d.kind, name=d.name, size=d.size,
                     expires_at=d.expires_at, extended=d.extended, status=status,
                 )
             )

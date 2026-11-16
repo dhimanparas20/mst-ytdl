@@ -67,6 +67,29 @@ class RedactionFilter(logging.Filter):
         return True
 
 
+class QuietHealthAccessFilter(logging.Filter):
+    """Drop successful ``GET /api/health`` access lines — the UI polls them every few seconds."""
+
+    _OK = re.compile(r'"GET /api/health(?:\?[^"]*)? HTTP/[^"]+" 200\b')
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:  # noqa: BLE001 — never break logging on a bad record
+            return True
+        return self._OK.search(msg) is None
+
+
+_HEALTH_QUIET = QuietHealthAccessFilter()
+
+
+def quiet_health_access() -> None:
+    """Attach the health-check filter to ``uvicorn.access`` (idempotent; safe before uvicorn starts)."""
+    access = logging.getLogger("uvicorn.access")
+    if _HEALTH_QUIET not in access.filters:
+        access.addFilter(_HEALTH_QUIET)
+
+
 class JsonFormatter(logging.Formatter):
     """One JSON object per line."""
 
@@ -142,8 +165,11 @@ def attach_server_logs() -> None:
     Send uvicorn / huey output (and HTTP access lines) to the log directory too.
 
     Those libraries install their own handlers when the server starts, so call this from the
-    API lifespan and the Huey startup hook (idempotent).
+    API lifespan and the Huey startup hook (idempotent). Always quiets successful
+    ``GET /api/health`` access lines (console + ``access.log``) — the UI polls them constantly.
     """
+    quiet_health_access()
+    access = logging.getLogger("uvicorn.access")
     if not file_logging_enabled():
         return
     handlers = _role_file_handlers()
@@ -153,7 +179,6 @@ def attach_server_logs() -> None:
             if h not in lg.handlers:
                 lg.addHandler(h)
     try:
-        access = logging.getLogger("uvicorn.access")
         h = _file_handler("access.log")
         if h not in access.handlers:
             access.addHandler(h)

@@ -751,14 +751,7 @@ body:not(.server-mode) .server-only { display: none !important; }
 }
 @media (prefers-reduced-motion: reduce) { .btn-grad.soon { animation: none; box-shadow: 0 0 0 2px rgba(251,191,36,.7); } }
 
-/* "My downloads" (server mode, top of the Library panel) */
-.my-dl-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.my-dl-list { display: flex; flex-direction: column; gap: 8px; }
-.my-dl-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--stroke); background: rgba(255,255,255,.03); }
-.my-dl-row .my-dl-title { flex: 1 1 180px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13.5px; }
-.my-dl-row .my-dl-meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.my-dl-row .my-dl-meta.soon { color: var(--warn); font-weight: 600; }
-.my-dl-row .btn-grad { padding: 5px 12px; font-size: 13px; }
+/* "Your downloads" styles live below (server mode) */
 
 /* maintenance notice under the top bar */
 .maint-banner { border-color: rgba(251,113,133,.4); background: rgba(251,113,133,.1); }
@@ -959,3 +952,24 @@ body.stage-open .miniplayer, body.stage-open .vwin { visibility: hidden; }
   .q-globals { display: none !important; }
   .q-manage { display: block; }
 }
+
+/* Server mode: shared host library is secondary; quiet it when empty at root */
+body.server-mode .lib-host.is-empty-root #storage,
+body.server-mode .lib-host.is-empty-root .card-pad:has(#crumbs),
+body.server-mode .lib-host.is-empty-root #lib-bulk { display: none; }
+body.server-mode .lib-host.is-empty-root #lib-empty { opacity: .85; }
+
+/* Your downloads (server mode, top of Library) */
+.my-dl-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.my-dl-list { display: flex; flex-direction: column; gap: 10px; }
+.my-dl-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--stroke); background: rgba(255,255,255,.04); }
+.my-dl-row.soon { border-color: rgba(251,191,36,.45); background: rgba(251,191,36,.08); }
+.my-dl-ico { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; background: var(--grad-soft); color: var(--g2); font-size: 18px; flex-shrink: 0; }
+.my-dl-main { flex: 1 1 160px; min-width: 0; }
+.my-dl-title { font-weight: 650; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.my-dl-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.my-dl-meta .exp.soon { color: var(--warn); font-weight: 600; }
+.my-dl-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.my-dl-actions .btn-grad { padding: 6px 12px; font-size: 13px; }
+#my-dl.has-rows { border-color: rgba(106,88,214,.4); box-shadow: 0 0 0 1px rgba(106,88,214,.14); }
+#my-dl-count { background: rgba(52,211,153,.15); color: #6ee7b7; border: 1px solid rgba(52,211,153,.35); }

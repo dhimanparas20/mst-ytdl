@@ -23,15 +23,15 @@ downloads/
 | Sources | YouTube + YouTube Music: videos, shorts, `youtu.be`, playlists, albums, channels, Mix/radio lists; **text search**; many links at once |
 | Formats | Audio **MP3** (64–320 kbps), M4A, Opus, FLAC, WAV · Video **MP4** (144p–4K), MKV, WebM |
 | Quality | Bitrate / resolution chooser; the UI greys out sizes a video doesn't offer |
-| Control | **Start, pause, resume, cancel, retry** per track, per job, or for the whole queue. Pause keeps the `.part` file, so resume continues from the same byte |
+| Control | **Start, pause, resume, cancel, retry** per track, per job, or for the whole queue. Pause keeps the `.part` file (pause is unavailable while ffmpeg is converting — the UI says *Finishing…*). Retry keeps progress; Restart replaces the file |
 | Parallelism | Huey consumer threads = hard ceiling; a **live "parallel downloads" limit** (UI stepper) enforced across processes by a Redis slot limiter, plus yt-dlp's parallel fragment download inside each file |
 | Status | Per-job and per-track progress, speed, ETA, bytes, stage ("merging", "converting audio"…), live over **SSE** with a sparkline of total speed |
 | Extras | Cover art + tags embedded, subtitles (download + embed), **SponsorBlock cut** (removes sponsor / self-promo / interaction segments, off by default), speed cap, skip files that already exist (or *overwrite*), playlist track picker (`1-5, 8, 12-`), custom folder name, ZIP download of a playlist, built-in player + library browser |
-| Resilience | Auto-retry for transient errors (not for private/removed videos), crash recovery (dead workers' downloads become *Paused*), health pill (Redis / worker / ffmpeg) |
+| Resilience | Auto-retry for transient errors (not for private/removed videos), crash recovery (dead workers' downloads become *Paused*), health pill (Redis / worker / ffmpeg / **JS runtime** — missing Node → degraded), optional `DL_WEBHOOK_URL` (ntfy) on job finish |
 | Cart | **Download cart**: collect songs from search results, playlist previews and pasted links, then download them in one go (one folder, or one ZIP) |
 | Subscriptions | **Follow a channel or playlist**: new uploads are queued automatically (checked every 15 min) with the format you picked when subscribing — see *Subscriptions* below |
 | Admin dashboard | **`/admin`** (username + password): live analytics, every visitor's downloads, visitors & IP blocks, full file manager (hidden folders too), live settings and hard limits, maintenance mode, cache controls, log viewer |
-| Server mode | `SERVER_MODE=true` turns it into a public site: private per-visitor queues, finished files handed to the browser and **deleted after an hour**, admin-locked library management, limits — see below |
+| Server mode | `SERVER_MODE=true` turns it into a public site: private per-visitor queues, finished files handed to the browser and **deleted after an hour** (**My downloads** + one-shot *Keep longer*), admin-locked library (shared host files — not your deliveries), maintenance banner, limits — see below |
 | Safety | Host allow-list (YouTube only), path-traversal-proof library API, loopback bind by default |
 
 ## In-app player (play anything, no downloading needed)
@@ -96,7 +96,7 @@ Nobody has to export a cookies file. In the cookies dialog, **Sign in with Googl
 **Longer-lasting sessions (recommended):** do this in an **Incognito / private** window. Extensions are off there by default — open `chrome://extensions` (or `edge://extensions`), open this extension's card, and turn on **Allow in Incognito**. Sign in, stay on `youtube.com/robots.txt`, Connect, then **close the Incognito window** so YouTube does not rotate that session while you keep browsing.
 
 - **Phones and tablets** can't run the extension. There the dialog skips the Google tab and tells the person to enter the code on a computer that is signed in to YouTube: the code belongs to the browser that asked for it, so that computer's extension links the phone (using the computer's YouTube account).
-- The site serves the extension at `/api/connect/extension.zip`, already pointed at this server. It is installed once (unzip, *Load unpacked*). The cookies dialog shows clear buttons for *Download extension*, *Open sign-in again*, and *Open robots.txt*.
+- The site serves the extension at `/api/connect/extension.zip`, already pointed at this server. It is installed once (unzip, *Load unpacked*). The cookies dialog walks through a **4-step Connect wizard** (sign-in → install + Allow in Incognito → enter code → close Incognito) with clear buttons for *Download extension*, *Open sign-in again*, and *Open robots.txt*. A top-bar **cookie chip** shows signed-in / expiry status.
 - The code is single use, lasts 10 minutes and is bound to the visitor that asked for it; uploads are rate-limited per IP.
 - Cookies are stored exactly like pasted ones (server mode: that visitor only, deleted after `SERVER_VISITOR_COOKIE_HOURS`). Logged-out cookies are refused and never overwrite working ones.
 - `SERVER_CONNECT_ENABLED` / admin → Settings → *Sign in with the browser extension* turns it off; pasting cookies keeps working either way.
@@ -166,7 +166,7 @@ Everything is written under one directory, **`./logs/`** (gitignored; in Docker 
 | `api.log` | API process: app code, uvicorn |
 | `worker.log` | Huey worker: downloads, progress lines, retries, huey itself |
 | `api.errors.log`, `worker.errors.log` | `WARNING` and above only |
-| `access.log` | One line per HTTP request |
+| `access.log` | One line per HTTP request (successful `GET /api/health` polls are omitted — the UI hits that path constantly) |
 
 Each file rotates at 5 MB (5 backups). `LOG_ROLE` (`api` / `worker`, set by `main.py` and compose) names a process' files; plain `uvicorn …` without it writes `app.log`. Passwords, tokens and cookies are masked. The console output is unchanged (`docker compose logs -f huey`).
 
@@ -326,13 +326,13 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `GET /admin/maintenance` · `POST /admin/maintenance/{action}` · `GET /admin/logs` · `/admin/logs/{name}` | Housekeeping actions; log tail (`lines`, `level`, `q`) |
 | `GET /events` | SSE stream of queue snapshots (server mode: your queue only) |
 | `GET /library` · `/library/file` · `/library/zip` · `DELETE /library` · `GET /library/usage` | Browse, stream (Range), zip, delete; usage = library files / bytes + disk total / used / free. Server mode: writes need the admin (403) |
-| `GET/PUT /runtime` · `GET /config` · `GET /health` | Live settings, UI option lists (incl. `maintenance` / `maintenance_message` in server mode: the UI shows a banner while new downloads are refused), dependency check |
+| `GET/PUT /runtime` · `GET /config` · `GET /health` | Live settings, UI option lists (incl. `maintenance` / `maintenance_message` / `max_subscriptions` in server mode: the UI shows a banner while new downloads are refused), dependency check (Redis / worker / ffmpeg / JS runtime — any missing → `degraded`) |
 
 ## Tests
 
 ```bash
 node --test "web/tests/*.test.js"   # 28 tests: formatting, speed units, shuffle/queue/quality/window logic
-uv run pytest                 # ~1110 fast tests (fake Redis + scripted yt-dlp), ~60 s
+uv run pytest                 # ~1208 fast tests (fake Redis + scripted yt-dlp), ~70 s
 uv run pytest -m live         # real YouTube / yt-dlp / ffmpeg (downloads a few MB, needs internet)
 uv run ruff check .
 ```

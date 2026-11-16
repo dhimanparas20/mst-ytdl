@@ -248,12 +248,15 @@
         <!-- library -->
         <section id="panel-library" aria-label="Library" hidden>
           <div id="my-dl" class="glass card-pad mb-3 server-only" aria-label="My downloads">
-            <div class="my-dl-head"><i class="bi bi-cloud-arrow-down-fill grad-text"></i><b>My downloads</b>
-              <span class="faint small">files ready to save — deleted from the server when the timer ends</span>
+            <div class="my-dl-head"><i class="bi bi-cloud-arrow-down-fill grad-text"></i><b>Your downloads</b>
+              <span class="tag ok sm" id="my-dl-count" hidden></span>
+              <span class="faint small" id="my-dl-sub">This is where finished songs appear on a public server — press Save to keep them on your device</span>
               <button class="btn-ghost sm ms-auto" id="my-dl-refresh" type="button"><i class="bi bi-arrow-clockwise"></i>Refresh</button></div>
             <div id="my-dl-list" class="my-dl-list"></div>
-            <p id="my-dl-empty" class="muted small mb-0">Nothing waiting. Finished downloads show up here with a Save button.</p>
+            <p id="my-dl-empty" class="muted small mb-0">Nothing ready yet. Finish a download on the Downloads tab — it shows up here (not inside the shared folders below).</p>
           </div>
+          <div id="lib-host" class="lib-host">
+          <div class="field-label server-only mb-2" id="lib-host-label" hidden><i class="bi bi-folder2 me-1"></i>Shared host library <span class="faint">— operator folders only (Normal Albums, English, …). Your song is in <b>Your downloads</b> above, not here.</span></div>
           <div class="glass storage mb-3" id="storage" aria-label="Storage">
             <div class="storage-top"><span class="muted"><i class="bi bi-device-hdd"></i> Storage</span><b class="mono" id="st-used">—</b><span class="muted">used of <b class="mono" id="st-total" style="font-size:13px">—</b></span><span class="ms-auto mono" id="st-free"></span></div>
             <div class="storage-bar" id="st-bar" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i class="lib" id="st-lib"></i><i class="other" id="st-other"></i></div>
@@ -286,8 +289,9 @@
             <div class="orb-ico"><i class="bi bi-folder2-open"></i></div>
             <h3 class="mb-1">This folder is empty</h3>
             <p class="muted mb-0 local-only">Finished downloads appear here.</p>
-            <p class="muted mb-0 server-only">Shared host library is empty. Your own finished downloads are saved from the job card on Downloads (Save), not here.</p>
+            <p class="muted mb-0 server-only">No shared host files here. Look at <b>Your downloads</b> above for songs you just finished.</p>
           </div>
+          </div><!-- /lib-host -->
         </section>
       </div>
       <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" aria-label="Resize columns" tabindex="0" title="Drag to resize · double-click to reset"></div>

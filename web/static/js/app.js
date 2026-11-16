@@ -65,9 +65,11 @@ function paintMode(cfg) {
   if (libTip) {
     libTip.hidden = !server;
     libTip.innerHTML = server
-      ? `<i class="bi bi-info-circle"></i> Library shows <b>shared host files</b>. Your finished downloads appear as <b>Save</b> on the Downloads job card (kept ~${ttl} min).`
+      ? `<i class="bi bi-info-circle"></i> Look at <b>Your downloads</b> at the top for songs you just finished (kept ~${ttl} min) — press <b>Save to device</b>. The folders below (Normal Albums, English, …) are the operator’s shared library, not your private downloads.`
       : "";
   }
+  const hostLabel = $("#lib-host-label");
+  if (hostLabel) hostLabel.hidden = !server;
 }
 
 /** Server mode: tell visitors up front that new downloads are refused (the server enforces it: HTTP 503). */

@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from modules.logger import attach_server_logs, get_logger, log_dir, reset_file_logging
+from modules.logger import QuietHealthAccessFilter, attach_server_logs, get_logger, log_dir, quiet_health_access, reset_file_logging
 
 
 @pytest.fixture
@@ -73,10 +73,15 @@ def test_server_loggers_are_attached_once_and_access_has_its_own_file(logs):
         for n in ("uvicorn", "huey"):
             added = [h for h in logging.getLogger(n).handlers if h not in before[n]]
             assert len(added) == 2, n  # <role>.log + <role>.errors.log
-        logging.getLogger("uvicorn.access").warning("GET /api/health 200")
-        for h in logging.getLogger("uvicorn.access").handlers:
+        # successful health checks are filtered (UI polls them); a normal request still lands in access.log
+        access = logging.getLogger("uvicorn.access")
+        access.warning('127.0.0.1:1 - "GET /api/health HTTP/1.1" 200 OK')
+        access.warning('127.0.0.1:1 - "GET /api/config HTTP/1.1" 200 OK')
+        for h in access.handlers:
             h.flush()
-        assert "GET /api/health" in (logs / "access.log").read_text(encoding="utf-8")
+        text = (logs / "access.log").read_text(encoding="utf-8")
+        assert "GET /api/health" not in text
+        assert "GET /api/config" in text
     finally:
         for n in names:
             lg = logging.getLogger(n)
@@ -117,3 +122,16 @@ def test_no_duplicate_lines_for_child_loggers(logs):
         assert (logs / "worker.log").read_text(encoding="utf-8").count("once only") == 1
     finally:
         logging.getLogger("uvicorn").handlers = before
+
+
+def test_quiet_health_access_drops_only_successful_health_checks():
+    f = QuietHealthAccessFilter()
+    class R:
+        def __init__(self, msg): self._msg = msg
+        def getMessage(self): return self._msg
+    assert f.filter(R('127.0.0.1:1 - "GET /api/health HTTP/1.1" 200 OK')) is False
+    assert f.filter(R('127.0.0.1:1 - "GET /api/health HTTP/1.1" 503 Service Unavailable')) is True
+    assert f.filter(R('127.0.0.1:1 - "GET /api/config HTTP/1.1" 200 OK')) is True
+    quiet_health_access()
+    quiet_health_access()  # idempotent
+    assert sum(1 for x in logging.getLogger("uvicorn.access").filters if isinstance(x, QuietHealthAccessFilter)) == 1
