@@ -142,17 +142,13 @@
             <div id="preview"></div>
           </div>
 
-          <!-- search mode -->
+          <!-- search mode: results paint in #home-explore (main feed), not under this form -->
           <div id="src-search" hidden>
             <form id="search-form" class="flex gap-2">
               <input id="search-input" class="form-control" type="search" placeholder="Song, artist, video title…" autocomplete="off" minlength="2" maxlength="200">
               <button class="btn-grad" type="submit" style="padding:10px 16px"><i class="bi bi-search"></i></button>
             </form>
-            <div class="flex items-center justify-between gap-2 mt-2 flex-wrap">
-              <div class="faint small">Arrange results</div>
-              <div id="search-layout" class="results-layout-host"></div>
-            </div>
-            <div id="search-results" class="results"></div>
+            <div class="faint small mt-2">Results show above in the main feed.</div>
           </div>
 
           <!-- my YouTube: the signed-in account's playlists + home feed -->
@@ -755,7 +751,7 @@
         <div class="dropup"><button class="mp-btn" id="mp-sleep" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Sleep timer" title="Sleep timer"><i class="bi bi-moon-stars"></i></button><ul class="dropdown-menu dropdown-menu-end" id="mp-sleep-menu"></ul></div>
         <div class="mp-vol"><button class="mp-btn" id="mp-mute" type="button" aria-label="Mute" title="Mute (M)"><i class="bi bi-volume-up-fill"></i></button><input type="range" id="mp-vol" class="mp-range" min="0" max="1" step="0.01" value="0.8" aria-label="Volume"></div>
         <button class="mp-btn" id="mp-eq-btn" type="button" aria-label="Equalizer" title="Equalizer" aria-expanded="false"><i class="bi bi-sliders"></i></button>
-        <button class="mp-btn" id="mp-lyrics" type="button" aria-label="Lyrics" title="Lyrics (Y)"><i class="bi bi-quote"></i></button>
+        <!-- lyrics live on the fullscreen stage only -->
         <button class="mp-btn" id="mp-stage" type="button" aria-label="Player mode" title="Player mode (V)"><i class="bi bi-stars"></i></button>
         <button class="mp-btn" id="mp-window" type="button" aria-label="Video window" title="Show / hide video window (T)"><i class="bi bi-window-stack"></i></button>
         <button class="mp-btn" id="mp-download" type="button" aria-label="Download this" title="Download this track" hidden><i class="bi bi-download"></i></button>
@@ -794,7 +790,8 @@
       <div class="mp-queue-head"><b>Up next</b><span class="faint" id="mp-queue-hint">drag to reorder</span>
         <span class="flex-grow-1"></span>
         <button class="btn-ghost sm" id="mp-q-shuffle" type="button"><i class="bi bi-shuffle"></i>Shuffle rest</button>
-        <button class="btn-ghost sm danger" id="mp-q-clear" type="button"><i class="bi bi-trash3"></i>Clear</button></div>
+        <button class="btn-ghost sm danger" id="mp-q-clear" type="button"><i class="bi bi-trash3"></i>Clear</button>
+        <button type="button" class="mp-btn" id="mp-q-close" aria-label="Close queue" title="Close"><i class="bi bi-x-lg"></i></button></div>
       <ul id="mp-queue-list"></ul>
     </div>
   </div>

@@ -2,6 +2,7 @@
 // one at a time or for a multi-selection.
 
 import { api } from "./api.js";
+import { navigateTo } from "./router.js";
 import { loadDeliveries } from "./deliveries.js";
 import { fileTrack } from "./player.js";
 import { getUiPrefs } from "./prefs.js";
@@ -238,6 +239,15 @@ async function onBulk(action) {
 }
 
 export function initLibrary() {
+  window.addEventListener("route", (e) => {
+    const r = e.detail || {};
+    if (r.page !== "library") return;
+    if (r.reason === "library") return;  // we just wrote the URL
+    const want = r.path || "";
+    if (want !== path || r.reason === "popstate" || r.reason === "init" || r.reason === "nav") {
+      loadLibrary(want, { fromRoute: true });
+    }
+  });
   $("#lib-grid").addEventListener("click", onGridClick);
   $("#lib-grid").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.classList.contains("lib-item")) onGridClick(e); });
   $("#crumbs").addEventListener("click", (e) => { const b = e.target.closest("[data-path]"); if (b) loadLibrary(b.dataset.path); });

@@ -21,37 +21,12 @@ import { initTheme } from "./theme.js";
 import { getUiPrefs, initUiPrefs } from "./prefs.js";
 import { connectEvents } from "./sse.js";
 import { enableRipple, initTooltips, toast } from "./ui.js";
+import { initRouter, navigateTo, paths, syncFromLocation, getRoute, replaceRoute } from "./router.js";
 import { $, $$, hideCookieBanner } from "./util.js";
 
-/** page id → path */
-const PAGES = {
-  home: "/",
-  download: "/download",
-  library: "/library",
-};
-const PATH_TO_PAGE = {
-  "/": "home",
-  "/download": "download",
-  "/downloads": "download",  // friendly alias
-  "/library": "library",
-};
-const HASH_LEGACY = { new: "home", queue: "download", library: "library", home: "home", download: "download" };
-
-let page = "home";
 let completedSeen = null;
 
-function pathOf(p) { return PAGES[p] || "/"; }
-
-function pageFromLocation() {
-  const raw = (location.pathname || "/").replace(/\/+$/, "") || "/";
-  if (PATH_TO_PAGE[raw]) return PATH_TO_PAGE[raw];
-  // old bookmarks: /#queue → download, etc.
-  const h = location.hash.replace(/^#/, "");
-  if (HASH_LEGACY[h]) return HASH_LEGACY[h];
-  return "home";
-}
-
-function applyPage() {
+function paintPageChrome(page) {
   document.body.dataset.page = page;
   const show = {
     home: $("#panel-new"),
@@ -62,21 +37,18 @@ function applyPage() {
   $$("#page-nav [data-page], #bottom-nav [data-page]").forEach((a) => {
     a.classList.toggle("active", a.dataset.page === page);
   });
-  if (page === "library") loadLibrary(currentPath());
-  if (page === "home") refreshExplore();
 }
 
-/** Navigate between Home / Downloads / Library. Uses History API; server serves index for each path. */
-export function navigate(next, { replace = false, path = null, scroll = true } = {}) {
-  if (!PAGES[next]) next = "home";
-  page = next;
-  applyPage();
-  const url = path || pathOf(next);
-  const cur = location.pathname.replace(/\/+$/, "") || "/";
-  const dest = url.replace(/\/+$/, "") || "/";
-  if (replace || cur === dest) history.replaceState({ page }, "", url);
-  else history.pushState({ page }, "", url);
-  if (scroll) window.scrollTo({ top: 0, behavior: "smooth" });
+/** Navigate between Home / Downloads / Library (path + query preserved via router). */
+export function navigate(next, { replace = false, scroll = true, ...patch } = {}) {
+  const page = paths[next] ? next : "home";
+  return navigateTo({ page, ...patch }, { replace, scroll, reason: "nav" });
+}
+
+function onRoute(e) {
+  const r = e.detail || {};
+  paintPageChrome(r.page || "home");
+  // Module-specific restores listen on the same ``route`` event.
 }
 
 /** Mode → status menu + library tips. */
@@ -120,7 +92,7 @@ function onNavClick(e) {
   // allow modified clicks to open a real new tab
   if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return;
   e.preventDefault();
-  navigate(a.dataset.page);
+  navigate(a.dataset.page, { scroll: true });
 }
 
 async function boot() {
@@ -143,24 +115,22 @@ async function boot() {
   window.addEventListener("cookies-changed", hideCookieBanner);
   window.addEventListener("open-settings", () => $("#open-settings")?.click());
 
-  // pages
+  // pages — path + query router (Back/Forward restores tabs / search / explore / library folder)
+  initRouter();
+  window.addEventListener("route", onRoute);
   $("#page-nav")?.addEventListener("click", onNavClick);
   $("#bottom-nav")?.addEventListener("click", onNavClick);
   document.querySelectorAll(".page-head [data-page]").forEach((a) => a.addEventListener("click", onNavClick));
-  window.addEventListener("popstate", () => { page = pageFromLocation(); applyPage(); });
   window.addEventListener("go-queue", () => {
-    if (getUiPrefs().openQueueOnSubmit) navigate("download");
+    if (getUiPrefs().openQueueOnSubmit) navigate("download", { scroll: true });
   });
   window.addEventListener("go-new", () => navigate("home", { scroll: true }));
   window.addEventListener("open-folder", (e) => {
-    navigate("library", { replace: false });
-    loadLibrary(e.detail || "");
+    navigate("library", { path: e.detail || "", scroll: true });
   });
 
-  // initial route (path wins; legacy #queue / #library still work once)
-  page = pageFromLocation();
-  applyPage();
-  history.replaceState({ page }, "", pathOf(page));
+  // Show the right panel immediately (full query restore runs after module inits below)
+  paintPageChrome(getRoute().page || "home");
 
   try {
     const [cfg, rt] = await Promise.all([api.config(), api.runtime()]);
@@ -171,8 +141,16 @@ async function boot() {
     initComposer(cfg);
     initOmnibar();
     initExplore();
-    // Home's applyPage already refreshes Explore; only force when we landed on Home after config.
-    if (page === "home") refreshExplore({ force: true });
+    // Apply path + query now that listeners are registered (tab / q / explore / library path).
+    syncFromLocation({ reason: "init" });
+    // Default Explore shelf only when the URL is not already a search / explore restore.
+    const r0 = getRoute();
+    const searching = r0.tab === "search" && r0.q && r0.q.length >= 2;
+    if (searching && r0.explore) {
+      // Drop stale explore= from a shared/bookmarked URL so refresh matches the feed.
+      replaceRoute({ explore: "", ep: 1 }, { reason: "search-normalize" });
+    }
+    if (r0.page === "home" && !r0.explore && !searching) refreshExplore({ force: true });
     initCart(cfg);
     initSubscriptions(cfg);
     setParCap(cfg.max_parallel_cap);
@@ -189,7 +167,7 @@ async function boot() {
       const done = snap.stats?.completed;
       if (done != null) {
         if (completedSeen != null && done > completedSeen) {
-          if (page === "library") loadLibrary(currentPath());
+          if (getRoute().page === "library") loadLibrary(currentPath());
           refreshFolders();
         }
         completedSeen = done;

@@ -70,8 +70,7 @@ export function closeStage() {
   el.classList.remove("in", "with-video", "with-lyrics");
   const ly = $("#st-lyrics");
   if (ly) { ly.hidden = true; ly.setAttribute("hidden", ""); }
-  $("#mp-lyrics")?.classList.remove("on");
-  document.body.classList.remove("stage-open");
+    document.body.classList.remove("stage-open");
   window.dispatchEvent(new CustomEvent("stage-change", { detail: { open: false } }));
   cancelAnimationFrame(S.raf);
   setTimeout(() => { if (!S.open) el.hidden = true; }, 420);
@@ -116,8 +115,7 @@ function paintLyricsToggle() {
   const btn = $("#st-lyrics-btn");
   btn?.setAttribute("aria-pressed", String(on));
   btn?.classList.toggle("on", on);
-  $("#mp-lyrics")?.classList.toggle("on", S.open && on);
-}
+  }
 
 function paintVideoToggle() {
   const on = S.open && S.videoOn;
@@ -695,10 +693,6 @@ export function initStage() {
   paintArtShape();
 
   $("#mp-stage").addEventListener("click", () => openStage());  // respects saved lyricsOn
-  $("#mp-lyrics").addEventListener("click", () => {
-    if (S.open) toggleLyrics();           // on/off while already fullscreen
-    else openStage({ lyrics: true });     // Lyrics button = open stage with lyrics
-  });
   $("#st-close").addEventListener("click", closeStage);
   $("#st-lyrics-btn").addEventListener("click", toggleLyrics);
   $("#st-art-shape")?.addEventListener("click", toggleArtShape);
@@ -757,7 +751,7 @@ export function initStage() {
     const k = e.key.toLowerCase();
     if (k === "escape" && S.open) { e.preventDefault(); closeStage(); }
     else if (k === "v" && playerApi.current()) { e.preventDefault(); toggleStage(); }
-    else if (k === "y" && playerApi.current()) { e.preventDefault(); toggleLyrics(); }
+    else if (k === "y" && S.open) { e.preventDefault(); toggleLyrics(); }  // lyrics control is stage-only
     else if (k === "p" && S.open) { e.preventDefault(); toggleVideo(); }
   });
   matchMedia("(prefers-reduced-motion: reduce)").addEventListener?.("change", () => { if (S.open) loop(); });

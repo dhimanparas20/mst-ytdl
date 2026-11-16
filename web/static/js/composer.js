@@ -2,12 +2,13 @@
 // Format, quality and options live in Settings (localStorage ``mst.prefs``); home shows a summary chip.
 
 import { api } from "./api.js";
+import { navigateTo, srcFromTab, tabFromSrc } from "./router.js";
 import { ytTrack } from "./player.js";
 import { getUiPrefs, setUiPrefs } from "./prefs.js";
 import { toast, withBusy } from "./ui.js";
 import {
   $, $$, esc, htmlToEl, debounce, extractUrls, fmtDuration, compressSelection, parseSelection, store,
-  maybeCookieBanner, showCookieBanner, hideCookieBanner, pagerHTML,
+  maybeCookieBanner, showCookieBanner, hideCookieBanner,
 } from "./util.js";
 
 const FORMATS = { audio: ["mp3", "m4a", "opus", "flac", "wav"], video: ["mp4", "mkv", "webm"] };
@@ -528,35 +529,19 @@ function updateGo() {
 }
 
 // ───────────────────────── search ─────────────────────────
+// Results paint in the main Explore feed (``feedSearch``), not under this form.
 
-let searchSeq = 0;
-let searchPage = 1;
-let searchPages = 1;
-
-async function doSearch(e, page = 1) {
+function doSearch(e, page = 1, { fromRoute = false, replace = false } = {}) {
   e?.preventDefault?.();
   const q = $("#search-input").value.trim();
   if (q.length < 2) return;
   const music = !!getUiPrefs().omnibarMusic;
-  const my = ++searchSeq;
   const want = Math.max(1, Math.min(10, Number(page) || 1));
-  const host = $("#search-results");
-  host.innerHTML = Array.from({ length: 4 }, () => `<div class="result"><div class="skeleton" style="width:92px;height:52px"></div><div style="flex:1"><div class="skeleton" style="height:13px;width:80%;margin-bottom:7px"></div><div class="skeleton" style="height:11px;width:40%"></div></div></div>`).join("");
-  try {
-    const data = await api.search(q, music, { page: want, limit: 12 });
-    if (my !== searchSeq) return;
-    const rows = data.entries || [];
-    searchPage = data.page || want;
-    searchPages = data.pages || 1;
-    S.searchResults = rows;
-    if (!rows.length) { host.innerHTML = `<div class="muted text-center p-3">No results.</div>`; return; }
-    host.innerHTML = resultsHTML(rows) + pagerHTML({ page: searchPage, pages: searchPages });
-  } catch (err) {
-    if (my !== searchSeq) return;
-    const msg = err.detail || err.message;
-    maybeCookieBanner(msg);
-    host.innerHTML = `<div class="job-error"><i class="bi bi-exclamation-octagon-fill"></i><span>${esc(msg)}</span></div>`;
-  }
+  const omni = $("#omnibar-input");
+  if (omni) omni.value = q;
+  window.dispatchEvent(new CustomEvent("feed-search", {
+    detail: { q, page: want, fromRoute, replace, music },
+  }));
 }
 
 /** Track cards + bulk bar — click a card to play; cart / download stay on the action strip. */
@@ -677,16 +662,21 @@ function openAccountPlaylist(i) {
 
 // ───────────────────────── init ─────────────────────────
 
-function setSource(src, { focus = true } = {}) {
+function setSource(src, { focus = true, fromRoute = false } = {}) {
   S.src = src;
   $$("#src-seg button").forEach((b) => b.classList.toggle("active", b.dataset.src === src));
   $("#src-link").hidden = src !== "link";
   $("#src-search").hidden = src !== "search";
   $("#src-account").hidden = src !== "account";
+  if (!fromRoute) {
+    const patch = { page: "home", tab: tabFromSrc(src) };
+    if (src !== "search") { patch.q = ""; patch.sp = 1; }
+    navigateTo(patch, { replace: false, reason: "tab" });
+  }
   if (src === "account") loadAccount();
   else if (!focus) return;
-  else if (src === "search") setTimeout(() => $("#search-input").focus(), 50);
-  else $("#url-input").focus();
+  else if (src === "search") setTimeout(() => $("#search-input")?.focus(), 50);
+  else $("#url-input")?.focus();
 }
 
 export function focusInput() { setSource("link"); $("#url-input").focus(); }
@@ -702,7 +692,7 @@ export function acceptLinks(text) {
 }
 
 /**
- * Top omnibar search: flip to Search, fill the query, optionally run the form.
+ * Fill the Search tab + paint results in the main home feed.
  * When ``results`` is passed, paint them without a second network round-trip.
  */
 export function acceptSearchQuery(q, { music, submit = true, results = null, page = 1, pages = 1, focus = false } = {}) {
@@ -712,20 +702,22 @@ export function acceptSearchQuery(q, { music, submit = true, results = null, pag
     // Only write when it actually flips — avoids ui-prefs → search feedback loops.
     setUiPrefs({ omnibarMusic: !!music });
   }
-  // Keep the visitor on whatever tab they were on when the omnibar searched;
-  // only jump to New when they explicitly open a link (acceptLinks) or ask for focus.
   if (focus) window.dispatchEvent(new CustomEvent("go-new"));
+  const query = String(q || "").trim();
   if (results) {
     S.searchResults = results;
-    searchPage = Math.max(1, Math.min(10, Number(page) || 1));
-    searchPages = Math.max(1, Math.min(10, Number(pages) || 1));
-    $("#search-results").innerHTML = results.length
-      ? resultsHTML(results) + pagerHTML({ page: searchPage, pages: searchPages })
-      : `<div class="muted text-center p-3">No results.</div>`;
+    window.dispatchEvent(new CustomEvent("feed-search", {
+      detail: {
+        q: query, page, results, pages, replace: true,
+        music: music != null ? !!music : undefined,
+      },
+    }));
     return;
   }
-  if (submit && String(q || "").trim().length >= 2) {
-    $("#search-form").requestSubmit();
+  if (submit && query.length >= 2) {
+    window.dispatchEvent(new CustomEvent("feed-search", {
+      detail: { q: query, page, music: music != null ? !!music : undefined },
+    }));
   }
 }
 
@@ -846,22 +838,13 @@ export function initComposer(cfg) {
   $("#go-btn").addEventListener("click", onGo);
   $("#cart-add-btn").addEventListener("click", onCartAdd);
   $("#search-form").addEventListener("submit", doSearch);
-  $("#search-results").addEventListener("click", (e) => {
-    const pg = e.target.closest(".results-pager [data-page]");
-    if (pg) {
-      e.preventDefault(); e.stopPropagation();
-      if (!pg.disabled) doSearch(null, Number(pg.dataset.page));
-      return;
-    }
-    onResultClick(e, () => S.searchResults);
-  });
   $("#acc-feed").addEventListener("click", (e) => onResultClick(e, () => S.feed));
   $("#acc-playlists").addEventListener("click", (e) => { const c = e.target.closest("[data-pl]"); if (c) openAccountPlaylist(+c.dataset.pl); });
   $("#acc-msg").addEventListener("click", (e) => { if (e.target.closest("[data-acc-cookies]")) window.dispatchEvent(new CustomEvent("open-cookies")); });
   $("#acc-refresh").addEventListener("click", () => loadAccount(true));
   window.addEventListener("cookies-changed", () => { S.accLoaded = false; if (S.src === "account") loadAccount(true); });
   window.addEventListener("player-change", (e) => {
-    document.querySelectorAll("#search-results .result, #acc-feed .result, #omnibar-results .result").forEach((el) => el.classList.toggle("is-playing", !!e.detail.key && el.dataset.key === e.detail.key));
+    document.querySelectorAll("#acc-feed .result, #explore-results .result").forEach((el) => el.classList.toggle("is-playing", !!e.detail.key && el.dataset.key === e.detail.key));
   });
   // "Download this" button on the mini player (YouTube tracks)
   window.addEventListener("queue-download", async (e) => {
@@ -869,6 +852,21 @@ export function initComposer(cfg) {
   });
   refreshFolders();
   window.addEventListener("folders-changed", refreshFolders);
+
+  // Address bar → restore composer tab / fill search box (feed restore lives in explore.js)
+  window.addEventListener("route", (e) => {
+    const r = e.detail || {};
+    if (r.page && r.page !== "home") return;
+    if (r.reason !== "popstate" && r.reason !== "init") return;
+    const src = srcFromTab(r.tab || "link");
+    if (S.src !== src) setSource(src, { focus: false, fromRoute: true });
+    if (src === "search" && r.q) {
+      const box = $("#search-input");
+      if (box) box.value = r.q;
+      const omni = $("#omnibar-input");
+      if (omni) omni.value = r.q;
+    }
+  });
 
   // paste anywhere → straight into the box
   window.addEventListener("paste", (e) => {

@@ -585,6 +585,10 @@ body.rl-mosaic .results:not(.omnibar-results) .r-acts {
 }
 
 .home-explore .results { margin-top: 4px; }
+.home-explore.is-search #explore-seg,
+.home-explore.is-search #explore-refresh { display: none; }
+.home-explore.is-search #explore-clear-search { display: inline-flex; }
+
 
 
 /* ───────────── health pill / misc ───────────── */
@@ -810,6 +814,7 @@ body.is-playing-now .seekwrap:not(.drag) input[type=range].mp-range { filter: dr
 
 .mp-queue { margin-top: 12px; border-top: 1px dashed var(--stroke); padding-top: 10px; animation: fadeUp .35s var(--ease); }
 .mp-queue-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+#mp-q-close { flex: none; margin-left: 2px; }
 .mp-queue ul { list-style: none; margin: 0; padding: 0; max-height: 250px; overflow-y: auto; }
 .mp-queue li { display: grid; grid-template-columns: 22px 30px 1fr auto 28px; gap: 9px; align-items: center; padding: 5px 6px; border-radius: 10px; cursor: pointer; font-size: 13px; transition: background .2s, transform .2s; border: 1px solid transparent; animation: fadeUp .3s var(--ease) both; }
 .mp-queue li:hover { background: rgba(255,255,255,.06); }
@@ -1214,7 +1219,8 @@ body.stage-open .miniplayer .mp-queue:not([hidden]) {
 }
 .st-play:hover { transform: scale(1.06); }
 .st-play:active { transform: scale(.95); }
-#mp-lyrics.on, #mp-stage.on { color: var(--g1); }
+#mp-stage.on { color: var(--g1); }
+#mp-lyrics { display: none !important; } /* stage-only control */
 
 /* Stage extras: sleep / rate / EQ / download / queue (mirrors mini-player) */
 .stage-tools {

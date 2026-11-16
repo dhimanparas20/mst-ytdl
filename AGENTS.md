@@ -187,11 +187,12 @@ One SPA shell (`index.html`) with **path pages** (same HTML; client router swaps
 | `/library` | `#panel-library` | **Library** — browse / play / zip / Your downloads (features unchanged) |
 | `/admin` | `admin.html` | Separate admin app (not linked from the visitor UI) |
 
-`app.js` `navigate()` + `popstate` drive `body[data-page]`; `go-new` → `/`, `go-queue` → `/download`, `open-folder` → `/library`. Legacy `/#queue` / `/#library` hashes still resolve once. Desktop: top `#page-nav`; mobile: `#bottom-nav`. Omnibar (debounce + history + `/api/search/suggest` + client cache) stays on every page.
+`app.js` + `router.js`: path pages (`/`, `/download`, `/library`) plus query state (`tab`, `q`, `sp`, `explore`, `ep`, `path`) so Back/Forward restores Home tabs / search / explore / library folder. `go-new` → `/`, `go-queue` → `/download`, `open-folder` → `/library?path=`. Legacy `/#queue` hashes still resolve once. Omnibar stays global. `/api/*` unchanged.
 
 | Module | Role |
 |---|---|
-| `app.js` | boot, **path router** (`/`, `/download`, `/library`), health polling, SSE wiring |
+| `app.js` | boot, path+query router wiring, health polling, SSE |
+| `router.js` | History API: parse/build `/` · `/download` · `/library` and Home/Library query params; `route` event |
 | `omnibar.js` | universal top search/paste; debounce, local history, suggest API, opaque results panel |
 | `explore.js` | Home Explore shelves (For you / Music / Videos) with ≤10-page pager; gated by cookies / `exploreAnon` |
 | `status.js` | single status menu (mode · live · cookies · health) |

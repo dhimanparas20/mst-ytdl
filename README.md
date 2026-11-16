@@ -8,7 +8,7 @@ Paste a video, a song, an album or a whole playlist → pick MP3 / MP4 (and more
 
 | URL | Page |
 |---|---|
-| `/` | **Home** — Link / Search / Mine + **Explore** (For you when signed in; Music / Videos also for anonymous if Settings → experimental Explore is on) |
+| `/` | **Home** — Link / Search / Mine + Explore (`?tab=` · `?q=` · `?explore=` for Back/Forward) |
 | `/download` | **Downloads** — live queue dashboard (same controls as before) |
 | `/library` | **Library** — browse, play, zip (Your downloads in server mode) |
 | `/admin` | Admin dashboard (separate) |

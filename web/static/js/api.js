@@ -53,8 +53,19 @@ export const api = {
   accountPlaylists: () => request("GET", "/account/playlists"),
   accountHome: (limit = 40) => request("GET", "/account/home" + qs({ limit })),
   /** Paginated search → { entries, page, page_size, pages } (max 10 pages). */
-  search: (q, music = false, { page = 1, limit = 12 } = {}) =>
-    request("GET", "/search" + qs({ q, music: music || undefined, page, limit })),
+  search: async (q, music = false, { page = 1, limit = 12 } = {}) => {
+    const data = await request("GET", "/search" + qs({ q, music: music || undefined, page, limit }));
+    // Tolerate a bare list (older process) or the SearchResults envelope.
+    if (Array.isArray(data)) {
+      return { entries: data, page: 1, page_size: limit, pages: data.length ? 1 : 1 };
+    }
+    return {
+      entries: data?.entries || [],
+      page: data?.page || page,
+      page_size: data?.page_size || limit,
+      pages: data?.pages || 1,
+    };
+  },
   /** Popular recent queries for the omnibar (analytics TOPQ; may be []). */
   searchSuggest: (q = "", limit = 8) => request("GET", "/search/suggest" + qs({ q: q || undefined, limit })),
   /** Home shelf: auto | music | videos | for_you (paginated, max 10 pages). */
