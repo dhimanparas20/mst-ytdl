@@ -1,25 +1,22 @@
 // Universal top-bar search: paste links OR type a query.
-// History (local), popular suggestions (API), debounce, opaque animated panel.
+// Results paint in the main Explore feed (feedSearch) — not a dropdown card.
+// Empty-focus panel still shows recent / popular chips only.
 
 import { api } from "./api.js";
-import { acceptLinks, acceptSearchQuery, handleResultClick, renderResultsHTML } from "./composer.js";
+import { acceptLinks } from "./composer.js";
+import { feedSearch } from "./explore.js";
 import { getUiPrefs } from "./prefs.js";
 import { toast } from "./ui.js";
-import { $, debounce, esc, extractUrls, maybeCookieBanner, store } from "./util.js";
+import { $, debounce, esc, extractUrls, store } from "./util.js";
 
 const HIST_KEY = "mst.searchHistory";
-const CACHE_KEY = "mst.searchCache";
 const HIST_MAX = 12;
-const CACHE_TTL_MS = 10 * 60 * 1000; // mirror typical SERVER_CACHE_MINUTES client-side
 
 let open = false;
-let results = [];
 let lastQ = "";
 let lastMusic = null;  // last Music-pref we searched with (ui-prefs re-run only on flip)
-let seq = 0;
-let inflightKey = null;  // `${music}:${query}` while a network search is outstanding
 let popular = [];
-let mode = "idle"; // idle | links | results
+let mode = "idle"; // idle | links
 
 const panel = () => $("#omnibar-panel");
 const input = () => $("#omnibar-input");
@@ -36,26 +33,6 @@ function pushHistory(q) {
   if (clean.length < 2) return;
   const next = [clean, ...historyList().filter((x) => x !== clean)].slice(0, HIST_MAX);
   store(HIST_KEY, next);
-}
-
-function cacheGet(q, music) {
-  const all = store(CACHE_KEY) || {};
-  const hit = all[`${music ? "m" : "y"}:${q.trim().toLowerCase()}`];
-  if (!hit || Date.now() - hit.at > CACHE_TTL_MS) return null;
-  return hit.items;
-}
-
-function cacheSet(q, music, items) {
-  const all = store(CACHE_KEY) || {};
-  const key = `${music ? "m" : "y"}:${q.trim().toLowerCase()}`;
-  all[key] = { at: Date.now(), items };
-  // keep last 20 keys
-  const keys = Object.keys(all);
-  if (keys.length > 20) {
-    keys.sort((a, b) => (all[a].at || 0) - (all[b].at || 0));
-    keys.slice(0, keys.length - 20).forEach((k) => delete all[k]);
-  }
-  store(CACHE_KEY, all);
 }
 
 function setOpen(v) {
@@ -79,12 +56,6 @@ function paintStatus(html) {
   if (el) el.innerHTML = html || "";
 }
 
-function skeleton() {
-  return Array.from({ length: 4 }, (_, i) =>
-    `<div class="result omni-anim" style="animation-delay:${i * 40}ms"><div class="skeleton" style="width:92px;height:52px"></div><div style="flex:1"><div class="skeleton" style="height:13px;width:80%;margin-bottom:7px"></div><div class="skeleton" style="height:11px;width:40%"></div></div></div>`
-  ).join("");
-}
-
 function chipRow(title, icon, items, attr) {
   if (!items.length) return "";
   return `<div class="omni-sec">
@@ -102,7 +73,6 @@ function showHome(filter = "") {
   if (f) hist = hist.filter((h) => h.includes(f));
   let pops = popular;
   if (f) pops = pops.filter((h) => h.includes(f));
-  // de-dupe popular against history
   const histSet = new Set(hist);
   pops = pops.filter((p) => !histSet.has(p));
   const fallback = !hist.length && !pops.length
@@ -128,70 +98,26 @@ async function loadPopular() {
   } catch { popular = []; }
 }
 
-async function runSearch(q, { syncComposer = true, force = false } = {}) {
+/** Close the chip panel and paint results in the main home feed. */
+async function runSearch(q, { force = false, replace = false } = {}) {
   const query = q.trim();
   if (query.length < 2) return;
   const music = !!getUiPrefs().omnibarMusic;
-  const key = `${music ? "m" : "y"}:${query.toLowerCase()}`;
-  // Same query already on the wire / just painted — don't stampede /api/search.
-  if (!force && (inflightKey === key || (lastQ.toLowerCase() === query.toLowerCase() && lastMusic === music && results.length))) {
-    if (syncComposer && results.length) acceptSearchQuery(query, { music, submit: false, results });
-    return;
-  }
+  if (!force && lastQ.toLowerCase() === query.toLowerCase() && lastMusic === music) return;
   lastQ = query;
   lastMusic = music;
-  const my = ++seq;
-  inflightKey = key;
-  mode = "results";
-  setOpen(true);
-  home().hidden = true;
   pushHistory(query);
-
-  const cached = cacheGet(query, music);
-  if (cached) {
-    results = cached;
-    host().innerHTML = renderResultsHTML(results);
-    paintStatus(`${results.length} results · cached`);
-    if (syncComposer) acceptSearchQuery(query, { music, submit: false, results });
-    if (my === seq) inflightKey = null;
-    return;
-  }
-
-  paintStatus(`Searching “${esc(query)}”…`);
-  host().innerHTML = skeleton();
-  // Mirror query into the composer Search tab without a second network round-trip.
-  if (syncComposer) acceptSearchQuery(query, { music, submit: false });
-  try {
-    const data = await api.search(query, music, { page: 1, limit: 12 });
-    if (my !== seq) return;
-    results = data.entries || [];
-    cacheSet(query, music, results);
-    if (!results.length) {
-      host().innerHTML = `<div class="muted text-center p-3">No results.</div>`;
-      paintStatus("No matches");
-      return;
-    }
-    host().innerHTML = renderResultsHTML(results);
-    paintStatus(`${results.length} result${results.length === 1 ? "" : "s"} · Play, cart or download`);
-    if (syncComposer) acceptSearchQuery(query, {
-      music, submit: false, results, page: data.page || 1, pages: data.pages || 1,
-    });
-  } catch (err) {
-    if (my !== seq) return;
-    results = [];
-    const msg = err.detail || err.message;
-    maybeCookieBanner(msg);
-    host().innerHTML = `<div class="job-error"><i class="bi bi-exclamation-octagon-fill"></i><span>${esc(msg)}</span></div>`;
-    paintStatus("Search failed");
-  } finally {
-    if (my === seq) inflightKey = null;
-  }
+  setOpen(false);
+  mode = "idle";
+  const si = $("#search-input");
+  if (si) si.value = query;
+  await feedSearch(query, 1, { replace, music });
 }
 
 const debouncedSearch = debounce((q) => {
   if (extractUrls(q).length) return;
   const t = q.trim();
-  if (t.length >= 2) runSearch(t);
+  if (t.length >= 2) runSearch(t, { replace: true });
   else showHome(t);
 }, 450);
 
@@ -202,7 +128,7 @@ const debouncedSuggest = debounce(async (q) => {
     const remote = await api.searchSuggest(t, 6);
     if (input().value.trim() !== t) return;
     popular = [...new Set([...remote, ...popular])];
-    if (mode === "idle") showHome(t);
+    if (mode === "idle" && open && t.length < 2) showHome(t);
   } catch { /* ignore */ }
 }, 280);
 
@@ -217,7 +143,9 @@ function handleSubmit(e) {
     toast(urls.length === 1 ? "Link ready — pick format & download" : `${urls.length} links ready`, "ok", { ms: 2600 });
     return;
   }
-  runSearch(raw);
+  // Force re-run even if same query (user pressed Enter)
+  lastQ = "";
+  runSearch(raw, { force: true, replace: false });
 }
 
 function onDocPointer(e) {
@@ -232,9 +160,14 @@ export function initOmnibar() {
 
   form.addEventListener("submit", handleSubmit);
   input().addEventListener("focus", () => {
-    setOpen(true);
-    if (!input().value.trim() || mode === "idle") showHome(input().value);
-    else if (results.length) { home().hidden = true; }
+    const v = input().value.trim();
+    // Only open the chip panel when empty / short — live search goes to the main feed.
+    if (v.length < 2) {
+      setOpen(true);
+      showHome(input().value);
+    } else {
+      setOpen(false);
+    }
   });
   input().addEventListener("input", () => {
     const v = input().value;
@@ -253,11 +186,10 @@ export function initOmnibar() {
       return;
     }
     if (v.trim().length >= 2) {
-      showHome(v); // instant local suggestions while debounce fires search
+      setOpen(false); // results live in the main feed, not this card
       debouncedSearch(v);
       debouncedSuggest(v);
     } else {
-      results = [];
       showHome(v);
       setOpen(true);
     }
@@ -274,7 +206,9 @@ export function initOmnibar() {
       lastMusic = music;
       return;
     }
-    runSearch(lastQ, { force: true });
+    lastMusic = music;
+    lastQ = "";
+    runSearch(input().value.trim() || lastQ, { force: true, replace: true });
   });
   $("#omnibar-expand")?.addEventListener("click", () => {
     document.body.classList.add("omnibar-focus");
@@ -295,9 +229,9 @@ export function initOmnibar() {
     if (!chip) return;
     const q = chip.getAttribute("data-hist") || chip.getAttribute("data-sug");
     input().value = q;
-    runSearch(q);
+    lastQ = "";
+    runSearch(q, { force: true });
   });
-  host()?.addEventListener("click", (e) => handleResultClick(e, () => results));
 
   document.addEventListener("pointerdown", onDocPointer);
   window.addEventListener("keydown", (e) => {
@@ -306,8 +240,10 @@ export function initOmnibar() {
       document.body.classList.add("omnibar-focus");
       input().focus();
       input().select();
-      setOpen(true);
-      showHome(input().value);
+      if (input().value.trim().length < 2) {
+        setOpen(true);
+        showHome(input().value);
+      }
     }
   });
 

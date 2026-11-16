@@ -732,6 +732,7 @@ function bindQueue() {
     from = null; renderQueue();
   });
   $("#mp-q-shuffle").addEventListener("click", () => { S.queue = shuffleRest(S.queue, S.index); renderQueue(); toast("Shuffled what's coming up", "info", { ms: 1600 }); });
+  $("#mp-q-close")?.addEventListener("click", () => setQueueOpen(false));
   $("#mp-q-clear").addEventListener("click", () => {
     const keep = current();
     S.queue = keep ? [keep] : []; S.index = keep ? 0 : -1; S.bag = []; S.history = [];
