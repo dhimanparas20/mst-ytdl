@@ -90,10 +90,12 @@ Statistics are Redis counters kept `SERVER_ANALYTICS_DAYS` (30); visitors (anony
 
 ## Sign in with Google (browser extension)
 
-Nobody has to export a cookies file. In the cookies dialog, **Sign in with Google** opens Google's sign-in in a new tab and shows a one-time code. A small extension (`extension/`, Chrome / Edge / Brave / Firefox) sends that browser's YouTube cookies to your server when the person presses *Connect* and types the code. No Google Cloud project, OAuth client or secret is involved: a web page cannot read another site's cookies, so the extension does the one step the page can't.
+Nobody has to export a cookies file. In the cookies dialog, **Sign in with Google** opens Google's sign-in in a new tab (after login it continues to `https://www.youtube.com/robots.txt`, not the homepage) and shows a one-time code. A small extension (`extension/`, Chrome / Edge / Brave / Firefox) sends that browser's YouTube cookies to your server when the person presses *Connect* and types the code. No Google Cloud project, OAuth client or secret is involved: a web page cannot read another site's cookies, so the extension does the one step the page can't.
+
+**Longer-lasting sessions (recommended):** do this in an **Incognito / private** window. Extensions are off there by default — open `chrome://extensions` (or `edge://extensions`), open this extension's card, and turn on **Allow in Incognito**. Sign in, stay on `youtube.com/robots.txt`, Connect, then **close the Incognito window** so YouTube does not rotate that session while you keep browsing.
 
 - **Phones and tablets** can't run the extension. There the dialog skips the Google tab and tells the person to enter the code on a computer that is signed in to YouTube: the code belongs to the browser that asked for it, so that computer's extension links the phone (using the computer's YouTube account).
-- The site serves the extension at `/api/connect/extension.zip`, already pointed at this server. It is installed once (unzip, *Load unpacked*).
+- The site serves the extension at `/api/connect/extension.zip`, already pointed at this server. It is installed once (unzip, *Load unpacked*). The cookies dialog shows clear buttons for *Download extension*, *Open sign-in again*, and *Open robots.txt*.
 - The code is single use, lasts 10 minutes and is bound to the visitor that asked for it; uploads are rate-limited per IP.
 - Cookies are stored exactly like pasted ones (server mode: that visitor only, deleted after `SERVER_VISITOR_COOKIE_HOURS`). Logged-out cookies are refused and never overwrite working ones.
 - `SERVER_CONNECT_ENABLED` / admin → Settings → *Sign in with the browser extension* turns it off; pasting cookies keeps working either way.
@@ -203,9 +205,16 @@ YouTube sometimes blocks an IP that makes many requests; every lookup (downloads
 | `DL_COOKIES_FROM_BROWSER=chrome` (or `firefox`, `edge`) | Only when the app runs **on your machine** (`uv run`), **not in Docker** (the container cannot see your browser profile) | Set it in `.env`, restart |
 | `DL_COOKIES_FILE=<path to an exported cookies.txt>` | Everywhere, **including Docker** if the file is mounted into the container | see below |
 
-**Easiest — in the web UI:** Settings → *YouTube cookies* → **Edit**, paste the Netscape `cookies.txt`, **Save cookies**. The server validates the format, keeps only youtube.com / google.com cookies, stores them (owner-only) in `cookies/cookies.txt` and immediately runs a **live test** against YouTube (shows ✓/✗ with the reason). Settings shows whether cookies are loaded, whether they are a signed-in session, and when the login expires (warns when logged-out, expired or expiring within a week). Cookie values are never sent back to the browser. *Test* re-checks any time; *Remove cookies* deletes the file. No restart needed.
+**Easiest — in the web UI:** Settings → *YouTube cookies* → **Edit**, then either **Sign in with Google** (extension) or paste a Netscape `cookies.txt` → **Save cookies**. The server validates the format, keeps only youtube.com / google.com cookies, stores them (owner-only) in `cookies/cookies.txt` and immediately runs a **live test** against YouTube (shows ✓/✗ with the reason). Settings shows whether cookies are loaded, whether they are a signed-in session, and when the login expires (warns when logged-out, expired or expiring within a week). Cookie values are never sent back to the browser. *Test* re-checks any time; *Remove cookies* deletes the file. No restart needed.
 
-**Docker (manual file):** 1) In a browser where you are logged in to YouTube, install a "cookies.txt" exporter extension (e.g. *Get cookies.txt LOCALLY*), open youtube.com and export in **Netscape format**. 2) Save it as `./cookies/cookies.txt` (compose mounts `./cookies` at `/app/cookies`; the folder is gitignored). 3) In `.env` set `DL_COOKIES_FILE=/app/cookies/cookies.txt`. 4) `docker compose up -d --build`. Tip: use a throw-away Google account — heavy automated use can get an account flagged — and re-export when cookies expire. Never commit or share the file.
+**Paste export that lasts longer** (YouTube rotates cookies from any tab you keep open):
+
+1. Install a Netscape exporter such as [*Get cookies.txt LOCALLY*](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc).
+2. Open `chrome://extensions` → that extension → turn on **Allow in Incognito** (extensions do not run in Incognito until you do).
+3. Open a **new Incognito** window → sign in to YouTube → go to `https://www.youtube.com/robots.txt` (keep only that tab).
+4. Export youtube.com cookies in **Netscape** format → paste into the UI (or save the file) → **close the whole Incognito window** so that session is never opened again.
+
+**Docker (manual file):** same Incognito export as above, then save as `./cookies/cookies.txt` (compose mounts `./cookies` at `/app/cookies`; the folder is gitignored). In `.env` set `DL_COOKIES_FILE=/app/cookies/cookies.txt`, then `docker compose up -d`. Tip: use a throw-away Google account — heavy automated use can get an account flagged — and re-export when cookies expire. Never commit or share the file.
 
 ## Architecture
 

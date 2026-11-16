@@ -5,7 +5,9 @@ import { api } from "./api.js";
 import { toast, withBusy } from "./ui.js";
 import { $ } from "./util.js";
 
-const GOOGLE_SIGN_IN = "https://accounts.google.com/ServiceLogin?service=youtube&continue=" + encodeURIComponent("https://www.youtube.com/");
+// After Google sign-in, land on robots.txt (not the YouTube homepage) so the session is quieter and easier to keep from rotating.
+const YT_ROBOTS = "https://www.youtube.com/robots.txt";
+const GOOGLE_SIGN_IN = "https://accounts.google.com/ServiceLogin?service=youtube&continue=" + encodeURIComponent(YT_ROBOTS);
 const POLL_MS = 2000;
 // phones and tablets cannot run the extension: they hand the code to a computer instead (the code works from any device)
 const isPhone = () => window.matchMedia("(pointer: coarse) and (max-width: 1024px)").matches;

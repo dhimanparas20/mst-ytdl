@@ -271,15 +271,25 @@
         <div class="modal-body">
           <div id="connect-box" class="connect-box glass-in p-3 mb-3" hidden>
             <div class="flex items-center gap-2 mb-1"><i class="bi bi-google grad-text"></i><b>Sign in with Google</b></div>
-            <div class="small muted mb-2">Sign in to YouTube in your own browser, then press one button in a small browser extension. No cookie files.
+            <div class="small muted mb-2">Best in an <b>Incognito / private</b> window so YouTube does not rotate the session. Sign in there, then Connect with the small browser extension. No cookie files.
               <span id="cn-keep">This gives the server your YouTube session for <span id="cn-hours">24</span> hours, then it is deleted.</span></div>
             <button class="btn-grad" id="cn-go" type="button"><i class="bi bi-google me-2"></i>Sign in with Google</button>
             <ol id="cn-steps" class="cn-steps small" hidden>
               <li class="cn-phone-only">Phones can't run the extension, so use a computer that is signed in to YouTube: open this site there, press <b>Sign in with Google</b> once to get the extension, install it, then enter the code below in it. It links <b>this phone</b>, using that computer's YouTube account.</li>
-              <li class="cn-desktop-only">Sign in to YouTube in the tab that just opened (<a id="cn-open" href="#" target="_blank" rel="noopener">open it again</a>).</li>
-              <li class="cn-desktop-only">Install the extension once: <a href="/api/connect/extension.zip" download>download it</a>, unzip it, open <span class="mono">chrome://extensions</span>
-                (Edge: <span class="mono">edge://extensions</span>), turn on <b>Developer mode</b>, press <b>Load unpacked</b> and pick the unzipped folder (the one that directly contains <span class="mono">manifest.json</span>).</li>
-              <li>Click the extension, enter this code and press <b>Connect</b>:
+              <li class="cn-desktop-only">Prefer an <b>Incognito</b> window. Sign in to YouTube in the tab that just opened — it should land on <span class="mono">youtube.com/robots.txt</span> (stay there; don't browse the feed).
+                <div class="cn-actions">
+                  <a class="btn-ghost sm" id="cn-open" href="#" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i>Open sign-in again</a>
+                  <a class="btn-ghost sm" href="https://www.youtube.com/robots.txt" target="_blank" rel="noopener"><i class="bi bi-file-text"></i>Open robots.txt</a>
+                </div>
+              </li>
+              <li class="cn-desktop-only">Install the extension once (or open your already-installed copy). Unzip the download, open <span class="mono">chrome://extensions</span>
+                (Edge: <span class="mono">edge://extensions</span>), turn on <b>Developer mode</b>, press <b>Load unpacked</b> and pick the folder that contains <span class="mono">manifest.json</span>.
+                For Incognito: on that extension's card, turn on <b>Allow in Incognito</b> (extensions are off there by default).
+                <div class="cn-actions">
+                  <a class="btn-ghost sm" href="/api/connect/extension.zip" download><i class="bi bi-download"></i>Download extension</a>
+                </div>
+              </li>
+              <li>Click the extension, enter this code and press <b>Connect</b>, then <b>close the Incognito window</b> so that session is not rotated:
                 <span class="cn-code mono" id="cn-code">----</span>
                 <button class="btn-icon sm" id="cn-copy" type="button" aria-label="Copy the code" title="Copy"><i class="bi bi-clipboard"></i></button>
                 <div class="faint">Server: <span class="mono" id="cn-server"></span></div></li>
@@ -292,8 +302,14 @@
           <div id="ck-test-result" class="mb-2" style="font-size:13px" aria-live="polite"></div>
           <textarea id="ck-text" class="form-control mono" rows="12" spellcheck="false" autocomplete="off" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com&#9;TRUE&#9;/&#9;TRUE&#9;1893456000&#9;SID&#9;…" style="font-size:12px;white-space:pre;overflow:auto"></textarea>
           <div class="faint mt-2" style="font-size:12px">
-            In a browser where you are signed in (a private window works best), open youtube.com and export <b>Netscape format</b> with a “cookies.txt” extension, then paste it here.
+            Longer-lasting export: install a Netscape cookies.txt exporter (e.g. <b>Get cookies.txt LOCALLY</b>), open its card in
+            <span class="mono">chrome://extensions</span> and turn on <b>Allow in Incognito</b>, then open an <b>Incognito</b> window → sign in to YouTube → go to
+            <span class="mono">https://www.youtube.com/robots.txt</span> → export → paste here → <b>close Incognito</b> (don't keep using that session).
             Only youtube.com / google.com cookies are kept. <span id="ck-where">The values are stored on the server in <span class="mono" id="ck-path">cookies/cookies.txt</span> and are never shown again.</span>
+            <div class="cn-actions mt-2">
+              <a class="btn-ghost sm" href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener"><i class="bi bi-puzzle"></i>Get cookies.txt LOCALLY</a>
+              <a class="btn-ghost sm" href="https://www.youtube.com/robots.txt" target="_blank" rel="noopener"><i class="bi bi-file-text"></i>Open robots.txt</a>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
