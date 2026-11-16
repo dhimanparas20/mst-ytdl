@@ -18,7 +18,14 @@ from typing import Any
 from yt_dlp import YoutubeDL
 
 from configs import get_settings
-from models import EntryInfo, JobKind, MediaInfo, PlaylistMode
+from models import EntryInfo, JobKind, MediaInfo, PlaylistMode, SearchResults
+from models.paging import (
+    SEARCH_DEFAULT_PAGE_SIZE,
+    SEARCH_MAX_PAGE_SIZE,
+    SEARCH_MAX_PAGES,
+    SEARCH_POOL_CAP,
+    page_window,
+)
 from modules import get_logger, today_str
 from modules.ytdlp_util import (
     ParsedUrl,
@@ -268,7 +275,7 @@ class MetadataService:
 
         Args:
             query: free text (2–200 chars).
-            limit: results wanted, clamped to 1..25.
+            limit: results wanted, clamped to 1..``SEARCH_POOL_CAP`` (pagination pool).
             music: return YouTube Music watch URLs instead of youtube.com ones.
 
         Raises:
@@ -277,13 +284,46 @@ class MetadataService:
         q = (query or "").strip()
         if not 2 <= len(q) <= 200:
             raise InvalidRequestError("Search text must be 2–200 characters")
-        n = max(1, min(int(limit), 25))
+        n = max(1, min(int(limit), SEARCH_POOL_CAP))
         hit = cache_service.get_json("search", q.lower(), n, music, cookie_scope_tag())
         if hit is not None:
             return [EntryInfo.model_validate(e) for e in hit]
         out = self._search(q, n, music)
         cache_service.set_json("search", [e.model_dump(mode="json") for e in out], q.lower(), n, music, cookie_scope_tag())
         return out
+
+    def search_page(
+        self,
+        query: str,
+        *,
+        page: int = 1,
+        page_size: int = SEARCH_DEFAULT_PAGE_SIZE,
+        music: bool = False,
+    ) -> SearchResults:
+        """
+        One page of search hits (max ``SEARCH_MAX_PAGES``).
+
+        yt-dlp has no offset — we fetch ``page * page_size`` (+1 peek) and slice.
+        """
+        size = max(1, min(int(page_size), SEARCH_MAX_PAGE_SIZE))
+        p = max(1, min(int(page), SEARCH_MAX_PAGES))
+        need = p * size
+        peek = 1 if p < SEARCH_MAX_PAGES else 0
+        fetch_n = min(need + peek, SEARCH_MAX_PAGES * size)
+        pool = self.search(query, fetch_n, music=music)
+        if len(pool) < need:
+            # Exhausted within this window — exact page count from pool length.
+            page_i, pages, start = page_window(len(pool), p, size)
+            entries = pool[start : start + size]
+            return SearchResults(entries=entries, page=page_i, page_size=size, pages=pages)
+        # Full page; peek says whether another page exists.
+        has_more = len(pool) > need
+        pages = min(SEARCH_MAX_PAGES, p + (1 if has_more else 0))
+        # When has_more, advertise at least the next page so the pager can grow toward 10.
+        if has_more and pages <= p:
+            pages = min(SEARCH_MAX_PAGES, p + 1)
+        start = (p - 1) * size
+        return SearchResults(entries=pool[start : start + size], page=p, page_size=size, pages=max(pages, p))
 
     def _search(self, q: str, n: int, music: bool) -> list[EntryInfo]:
         try:

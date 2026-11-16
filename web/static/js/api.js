@@ -52,7 +52,14 @@ export const api = {
   connectStatus: (code) => request("GET", `/connect/${encodeURIComponent(code)}`),
   accountPlaylists: () => request("GET", "/account/playlists"),
   accountHome: (limit = 40) => request("GET", "/account/home" + qs({ limit })),
-  search: (q, music = false, limit = 12) => request("GET", "/search" + qs({ q, music: music || undefined, limit })),
+  /** Paginated search → { entries, page, page_size, pages } (max 10 pages). */
+  search: (q, music = false, { page = 1, limit = 12 } = {}) =>
+    request("GET", "/search" + qs({ q, music: music || undefined, page, limit })),
+  /** Popular recent queries for the omnibar (analytics TOPQ; may be []). */
+  searchSuggest: (q = "", limit = 8) => request("GET", "/search/suggest" + qs({ q: q || undefined, limit })),
+  /** Home shelf: auto | music | videos | for_you (paginated, max 10 pages). */
+  explore: (kind = "auto", { page = 1, limit = 12 } = {}) =>
+    request("GET", "/explore" + qs({ kind, page, limit })),
 
   create: (body) => request("POST", "/downloads", body),
   list: (params) => request("GET", "/downloads" + qs(params)),
@@ -81,7 +88,9 @@ export const api = {
   /** One finished track of a job (owner-checked; works in both modes). */
   itemFileUrl: (id, download = false) => `/api/items/${encodeURIComponent(id)}/file${download ? "?download=true" : ""}`,
 
-  lyrics: (title, artist, duration) => request("GET", "/lyrics" + qs({ title, artist, duration: duration ? Math.round(duration) : undefined })),
+  lyrics: (title, artist, duration, lang) => request("GET", "/lyrics" + qs({
+    title, artist, duration: duration ? Math.round(duration) : undefined, lang: lang || undefined,
+  })),
   myCookies: () => request("GET", "/my-cookies"),
   saveMyCookies: (text) => request("PUT", "/my-cookies", { text }),
   clearMyCookies: () => request("DELETE", "/my-cookies"),

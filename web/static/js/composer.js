@@ -1,12 +1,13 @@
-// "New download" card: link / search input, format + quality pickers, option
-// switches, URL preview (with playlist track selection) and submission.
+// "New download" card: link / search / Mine, URL preview (playlist track picker) and submission.
+// Format, quality and options live in Settings (localStorage ``mst.prefs``); home shows a summary chip.
 
 import { api } from "./api.js";
 import { ytTrack } from "./player.js";
+import { getUiPrefs, setUiPrefs } from "./prefs.js";
 import { toast, withBusy } from "./ui.js";
 import {
   $, $$, esc, htmlToEl, debounce, extractUrls, fmtDuration, compressSelection, parseSelection, store,
-  maybeCookieBanner, showCookieBanner, hideCookieBanner,
+  maybeCookieBanner, showCookieBanner, hideCookieBanner, pagerHTML,
 } from "./util.js";
 
 const FORMATS = { audio: ["mp3", "m4a", "opus", "flac", "wav"], video: ["mp4", "mkv", "webm"] };
@@ -16,47 +17,48 @@ const NO_COVER = new Set(["wav", "webm"]); // yt-dlp cannot embed artwork into t
 const HEIGHT_LABEL = { 1440: "1440p", 2160: "4K" };
 
 const S = {
-  src: "link", kind: "audio", format: "mp3", q: { audio: "192", video: "1080" },
+  src: "link",
+  // Separate saved defaults for each type — download time asks which to use.
+  audio: { format: "mp3", q: "192" },
+  video: { format: "mp4", q: "1080" },
   o: { thumb: true, meta: true, subs: false, langs: "en", over: false, sb: false, num: true, speed: "", folder: "", plmode: "auto" },
   cfg: null, urls: [], preview: null, previewFor: "", selection: new Set(), analyzing: 0, searchResults: [], feed: [], playlists: [], accLoaded: false,
 };
 
-const savePrefs = () => store("mst.prefs", { kind: S.kind, format: S.format, q: S.q, o: { ...S.o, folder: "" } });
+const savePrefs = () => store("mst.prefs", {
+  audio: { ...S.audio }, video: { ...S.video }, o: { ...S.o, folder: "" },
+});
 
-// ───────────────────────── format / quality / options UI ─────────────────────────
+// ───────────────────────── format / quality / options UI (Settings) ─────────────────────────
 
-function renderFormat() {
-  $$("#kind-seg button").forEach((b) => b.classList.toggle("active", b.dataset.kind === S.kind));
-  const host = $("#format-chips");
-  host.innerHTML = FORMATS[S.kind].map((f) =>
-    `<button type="button" class="chip ${f === S.format ? "active" : ""}" data-f="${f}" title="${FORMAT_HINT[f]}" aria-label="${f.toUpperCase()}" aria-pressed="${f === S.format}">${f.toUpperCase()}</button>`).join("");
-}
-
-function renderQuality() {
-  const host = $("#quality-chips"), note = $("#quality-note");
-  const label = $("#quality-label");
-  if (S.kind === "audio") {
-    label.textContent = "Bitrate";
-    if (!LOSSY.has(S.format)) {
-      host.innerHTML = "";
-      note.textContent = S.format === "opus" ? "original stream, no re-encode" : "lossless — no bitrate to pick";
-      return;
-    }
-    note.textContent = "";
-    const list = [...S.cfg.audio_bitrates, "best"];
-    host.innerHTML = list.map((q) =>
-      `<button type="button" class="chip ${q === S.q.audio ? "active" : ""}" data-q="${q}">${q === "best" ? "Best" : q}${q === "best" ? "" : "<small>kbps</small>"}</button>`).join("");
+function renderAudioPrefs() {
+  const host = $("#audio-format-chips");
+  if (!host) return;
+  host.innerHTML = FORMATS.audio.map((f) =>
+    `<button type="button" class="chip ${f === S.audio.format ? "active" : ""}" data-af="${f}" title="${FORMAT_HINT[f]}" aria-pressed="${f === S.audio.format}">${f.toUpperCase()}</button>`).join("");
+  const qHost = $("#audio-quality-chips"), note = $("#audio-quality-note");
+  if (!LOSSY.has(S.audio.format)) {
+    qHost.innerHTML = "";
+    note.textContent = S.audio.format === "opus" ? "original stream, no re-encode" : "lossless — no bitrate to pick";
     return;
   }
-  label.textContent = "Resolution";
-  const maxH = maxAvailableHeight();
-  note.textContent = maxH ? `up to ${maxH}p for this video` : "";
-  const list = [...S.cfg.video_heights, "best"];
-  const eff = effectiveVideoQuality();
-  host.innerHTML = list.map((q) => {
-    const off = maxH && q !== "best" && Number(q) > maxH;
+  note.textContent = "";
+  const list = [...(S.cfg?.audio_bitrates || ["64", "128", "192", "256", "320"]), "best"];
+  qHost.innerHTML = list.map((q) =>
+    `<button type="button" class="chip ${q === S.audio.q ? "active" : ""}" data-aq="${q}">${q === "best" ? "Best" : q}${q === "best" ? "" : "<small>kbps</small>"}</button>`).join("");
+}
+
+function renderVideoPrefs() {
+  const host = $("#video-format-chips");
+  if (!host) return;
+  host.innerHTML = FORMATS.video.map((f) =>
+    `<button type="button" class="chip ${f === S.video.format ? "active" : ""}" data-vf="${f}" title="${FORMAT_HINT[f]}" aria-pressed="${f === S.video.format}">${f.toUpperCase()}</button>`).join("");
+  const qHost = $("#video-quality-chips"), note = $("#video-quality-note");
+  note.textContent = "";
+  const list = [...(S.cfg?.video_heights || ["360", "720", "1080", "1440", "2160"]), "best"];
+  qHost.innerHTML = list.map((q) => {
     const text = q === "best" ? "Best" : HEIGHT_LABEL[q] || `${q}p`;
-    return `<button type="button" class="chip ${q === eff ? "active" : ""} ${off ? "is-disabled" : ""}" data-q="${q}" aria-pressed="${q === eff}" ${off ? 'aria-disabled="true" title="Not offered for this video"' : ""}>${text}</button>`;
+    return `<button type="button" class="chip ${String(q) === String(S.video.q) ? "active" : ""}" data-vq="${q}" aria-pressed="${String(q) === String(S.video.q)}">${text}</button>`;
   }).join("");
 }
 
@@ -66,18 +68,20 @@ function maxAvailableHeight() {
   return h?.length ? Math.max(...h) : null;
 }
 
-/** The resolution that will actually be fetched: the chosen one, capped by what exists. */
+/** Cap chosen video height by what the previewed single actually offers. */
 function effectiveVideoQuality() {
   const maxH = maxAvailableHeight();
-  if (!maxH || S.q.video === "best" || Number(S.q.video) <= maxH) return S.q.video;
-  const fit = S.cfg.video_heights.map(Number).filter((h) => h <= maxH);
-  return String(fit.length ? Math.max(...fit) : S.q.video);
+  const want = S.video.q;
+  if (!maxH || want === "best" || Number(want) <= maxH) return want;
+  const fit = (S.cfg?.video_heights || []).map(Number).filter((h) => h <= maxH);
+  return String(fit.length ? Math.max(...fit) : want);
 }
 
 function renderOptions() {
+  if (!$("#o-thumb")) return;
   $("#o-thumb").checked = S.o.thumb;
   $("#o-meta").checked = S.o.meta;
-  $("#o-subs").checked = S.o.subs && S.kind === "video";
+  $("#o-subs").checked = S.o.subs;
   $("#o-over").checked = S.o.over;
   $("#o-sb").checked = S.o.sb;
   $("#o-num").checked = S.o.num;
@@ -85,21 +89,53 @@ function renderOptions() {
   $("#o-speed").value = S.o.speed;
   $("#o-folder").value = S.o.folder;
   $$("#pl-seg button").forEach((b) => b.classList.toggle("active", b.dataset.mode === S.o.plmode));
-  $("#opt-subs").classList.toggle("is-off", S.kind !== "video");
-  $("#subs-langs").hidden = !(S.o.subs && S.kind === "video");
-  const noCover = NO_COVER.has(S.format);
+  $("#subs-langs").hidden = !S.o.subs;
+  const noCover = NO_COVER.has(S.audio.format);
   $("#opt-thumb").classList.toggle("is-off", noCover);
-  $("#opt-thumb-d").textContent = noCover ? `Not supported in ${S.format.toUpperCase()} files` : "Thumbnail becomes the file's artwork";
-}
-
-function setKind(kind) {
-  S.kind = kind;
-  if (!FORMATS[kind].includes(S.format)) S.format = FORMATS[kind][0];
-  refreshAll();
+  $("#opt-thumb-d").textContent = noCover ? `Not supported in ${S.audio.format.toUpperCase()} files` : "Thumbnail becomes the file's artwork (audio)";
 }
 
 function refreshAll() {
-  renderFormat(); renderQuality(); renderOptions(); updateGo(); savePrefs();
+  renderAudioPrefs(); renderVideoPrefs(); renderOptions(); updateGo(); savePrefs();
+}
+
+/** Ask Audio vs Video, then apply that type's saved defaults. Resolves to kind or null. */
+export function pickDownloadKind({ title } = {}) {
+  return new Promise((resolve) => {
+    const modalEl = $("#dl-kind-modal");
+    if (!modalEl) return resolve("audio");
+    if (title) $("#dl-kind-body").textContent = title;
+    else $("#dl-kind-body").textContent = "Choose audio or video — your saved defaults for that type will be used.";
+    $("#dl-kind-audio-sum").textContent = kindLabel("audio");
+    $("#dl-kind-video-sum").textContent = kindLabel("video");
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    let answer = null;
+    const onClick = (e) => {
+      const b = e.target.closest("[data-dl-kind]");
+      if (!b) return;
+      answer = b.dataset.dlKind;
+      modal.hide();
+    };
+    const onHidden = () => {
+      modalEl.removeEventListener("click", onClick);
+      modalEl.removeEventListener("hidden.bs.modal", onHidden);
+      resolve(answer);
+    };
+    modalEl.addEventListener("click", onClick);
+    modalEl.addEventListener("hidden.bs.modal", onHidden);
+    modal.show();
+  });
+}
+
+function kindLabel(kind) {
+  if (kind === "audio") {
+    const f = S.audio.format;
+    const q = LOSSY.has(f) ? (S.audio.q === "best" ? "best" : `${S.audio.q} kbps`) : "";
+    return `${f.toUpperCase()}${q ? " · " + q : ""}`;
+  }
+  const f = S.video.format;
+  const q = S.video.q === "best" ? "best" : HEIGHT_LABEL[S.video.q] || `${S.video.q}p`;
+  return `${f.toUpperCase()} · ${q}`;
 }
 
 // ───────────────────────── URL input + preview ─────────────────────────
@@ -206,7 +242,7 @@ function renderPreview() {
       <div class="flex gap-2 mt-2">
         <button class="btn-ghost sm flex-1" data-prev-play><i class="bi bi-play-fill"></i>Play${p.kind === "playlist" ? " playlist" : ""}</button>
         ${p.kind === "playlist" ? `<button class="btn-ghost sm flex-1" data-prev-shuffle><i class="bi bi-shuffle"></i>Shuffle playlist</button>` : ""}
-        <button class="btn-ghost sm flex-1" data-prev-cart><i class="bi bi-bag-plus"></i>${p.kind === "playlist" ? "Selected to cart" : "Add to cart"}</button>
+        <button class="btn-ghost sm flex-1" data-prev-cart><i class="bi bi-cart-plus"></i>${p.kind === "playlist" ? "Selected to cart" : "Add to cart"}</button>
         ${p.kind === "playlist" ? `<button class="btn-ghost sm flex-1" data-prev-sub data-bs-toggle="tooltip" title="Download new uploads automatically"><i class="bi bi-bell-fill"></i>Subscribe</button>` : ""}
       </div>
       ${p.kind === "playlist" ? `
@@ -228,12 +264,11 @@ function entryHTML(e) {
   return `<label class="entry ${off ? "is-off" : ""}" data-i="${e.index}">
     <input class="form-check-input m-0" type="checkbox" ${off ? "disabled" : ""} data-i="${e.index}">
     <span class="e-idx mono">${e.index}</span>
-    <img loading="lazy" alt="" src="${esc(e.thumbnail || "")}" onerror="this.style.visibility='hidden'">
-    <span class="e-title clamp-2">${esc(e.title)}${e.uploader ? `<span class="faint"> · ${esc(e.uploader)}</span>` : ""}</span>
+    <img class="e-play" loading="lazy" alt="" src="${esc(e.thumbnail || "")}" data-e-play="${e.index}" onerror="this.style.visibility='hidden'" title="Play">
+    <span class="e-title clamp-2 e-play" data-e-play="${e.index}" title="Play">${esc(e.title)}${e.uploader ? `<span class="faint"> · ${esc(e.uploader)}</span>` : ""}</span>
     <span class="e-dur mono">${e.duration ? fmtDuration(e.duration) : ""}</span>
     ${off ? "" : `<span class="e-act">
-      <button type="button" class="btn-icon sm info" data-e-play="${e.index}" aria-label="Play" title="Play"><i class="bi bi-play-fill"></i></button>
-      <button type="button" class="btn-icon sm" data-e-cart="${e.index}" aria-label="Add to cart" title="Add to cart"><i class="bi bi-bag-plus"></i></button>
+      <button type="button" class="btn-icon sm" data-e-cart="${e.index}" aria-label="Add to cart" title="Add to cart"><i class="bi bi-cart-plus"></i></button>
       <button type="button" class="btn-icon sm ok" data-e-dl="${e.index}" aria-label="Download" title="Download"><i class="bi bi-download"></i></button>
     </span>`}
   </label>`;
@@ -273,17 +308,18 @@ function previewEntries() {
 const videoIdOf = (url) => (String(url).match(/(?:[?&]v=|youtu\.be\/|\/shorts\/)([\w-]{11})/) || [])[1] || null;
 const toCart = (entries) => window.dispatchEvent(new CustomEvent("cart-add", { detail: { entries } }));
 
-/** One track of the previewed playlist: play it (the playlist keeps playing after it), add to cart, or download just it. */
+/** One track of the previewed playlist: play (title/thumb), cart, or download. */
 async function onEntryAction(e) {
   const btn = e.target.closest("[data-e-play], [data-e-cart], [data-e-dl]");
+  if (!btn) return;
   const idx = Number(btn.dataset.ePlay || btn.dataset.eCart || btn.dataset.eDl);
   const entry = S.preview?.entries.find((x) => x.index === idx);
   if (!entry) return;
   e.preventDefault();  // the row is a <label>: do not toggle its checkbox
-  if (btn.dataset.ePlay) {
+  if (btn.dataset.ePlay != null) {
     const avail = S.preview.entries.filter((x) => x.available);
-    window.dispatchEvent(new CustomEvent("player-play", { detail: { tracks: avail.map(ytTrack), start: avail.indexOf(entry) } }));
-  } else if (btn.dataset.eCart) {
+    window.dispatchEvent(new CustomEvent("player-play", { detail: { tracks: avail.map(ytTrack), start: Math.max(0, avail.indexOf(entry)) } }));
+  } else if (btn.dataset.eCart != null) {
     toCart([entry]); btn.classList.add("added");
   } else {
     try { await submit([entry.url], btn); } catch (err) { toast(err.detail || err.message, "err"); }
@@ -312,57 +348,79 @@ function onPreviewEvent(e) {
 
 // ───────────────────────── submit ─────────────────────────
 
-function buildBody(urls) {
+/** Build a submit body for ``urls`` using the saved defaults for ``kind`` (audio|video). */
+function buildBody(urls, kind = "audio") {
+  const isAudio = kind === "audio";
+  const format = isAudio ? S.audio.format : S.video.format;
   const body = {
     urls,
-    format: S.format,
+    format,
     playlist_mode: S.o.plmode,
     embed_metadata: S.o.meta,
-    embed_thumbnail: S.o.thumb && !NO_COVER.has(S.format),
+    embed_thumbnail: isAudio && S.o.thumb && !NO_COVER.has(format),
     overwrite: S.o.over,
     sponsorblock: S.o.sb,
     numbering: S.o.num,
   };
-  if (S.kind === "audio" && LOSSY.has(S.format)) body.quality = S.q.audio;
-  if (S.kind === "video") {
-    // a previewed single video is capped to what it really offers, so the job's badge tells the truth
-    body.quality = urls.length === 1 && urls[0] === S.previewFor ? effectiveVideoQuality() : S.q.video;
-    if (S.o.subs) { body.subtitles = true; body.subtitle_langs = S.o.langs.split(",").map((x) => x.trim()).filter(Boolean); }
+  if (isAudio && LOSSY.has(format)) body.quality = S.audio.q;
+  if (!isAudio) {
+    body.quality = urls.length === 1 && urls[0] === S.previewFor ? effectiveVideoQuality() : S.video.q;
+    if (S.o.subs) {
+      body.subtitles = true;
+      body.subtitle_langs = S.o.langs.split(",").map((x) => x.trim()).filter(Boolean);
+    }
   }
   if (S.o.speed) body.speed_limit = Number(S.o.speed);
   if (S.o.folder.trim()) body.folder = S.o.folder.trim();
   return body;
 }
 
-/** The current format / quality / switches, for other submitters (the download cart). Folder excluded: the cart names its own. */
-export function currentOptions() {
-  const { urls, playlist_mode, folder, ...opts } = buildBody([]);  // eslint-disable-line no-unused-vars
+/** Options for a given kind (cart / other submitters). Folder excluded. */
+export function currentOptions(kind = "audio") {
+  const { urls, playlist_mode, folder, ...opts } = buildBody([], kind);  // eslint-disable-line no-unused-vars
   return opts;
 }
 
-/** Snapshot of composer format state so the cart can seed its own picker. */
+/** Snapshot so the cart / UI can show both audio and video defaults. */
 export function formatState() {
-  return { kind: S.kind, format: S.format, q: { ...S.q }, audio_formats: FORMATS.audio, video_formats: FORMATS.video,
+  return {
+    audio: { ...S.audio }, video: { ...S.video },
+    audio_formats: FORMATS.audio, video_formats: FORMATS.video,
     audio_bitrates: S.cfg?.audio_bitrates || ["64", "128", "192", "256", "320"],
-    video_heights: S.cfg?.video_heights || ["144", "240", "360", "480", "720", "1080", "1440", "2160"] };
+    video_heights: S.cfg?.video_heights || ["144", "240", "360", "480", "720", "1080", "1440", "2160"],
+  };
 }
 
-/** Apply format/quality back into the composer (keeps prefs in sync when the cart changes them). */
+/** Apply one type's format/quality into saved defaults (used when cart edits are dropped — keep API). */
 export function applyFormatState({ kind, format, q } = {}) {
-  if (kind && FORMATS[kind]) S.kind = kind;
-  if (format && FORMATS[S.kind]?.includes(format)) S.format = format;
-  if (q) Object.assign(S.q, q);
+  if (kind === "audio") {
+    if (format && FORMATS.audio.includes(format)) S.audio.format = format;
+    if (q?.audio != null) S.audio.q = String(q.audio);
+    else if (typeof q === "string") S.audio.q = q;
+  } else if (kind === "video") {
+    if (format && FORMATS.video.includes(format)) S.video.format = format;
+    if (q?.video != null) S.video.q = String(q.video);
+    else if (typeof q === "string" || typeof q === "number") S.video.q = String(q);
+  }
   refreshAll();
 }
 
-/** "MP3 · 192 kbps" — what the current choice produces. */
+/** "MP3 · 192 kbps" for one kind (or a cart-style state object). */
 export function formatLabel(state = null) {
-  const kind = state?.kind || S.kind;
-  const format = state?.format || S.format;
-  const qq = state?.q || S.q;
-  const vq = kind === "video" ? (qq.video || "best") : null;
-  const q = kind === "audio" ? (LOSSY.has(format) ? (qq.audio === "best" ? "best" : `${qq.audio} kbps`) : "") : (vq === "best" ? "best" : HEIGHT_LABEL[vq] || `${vq}p`);
-  return `${format.toUpperCase()}${q ? " · " + q : ""}`;
+  if (state?.kind === "audio" || state?.kind === "video") {
+    const kind = state.kind;
+    const format = state.format || (kind === "audio" ? S.audio.format : S.video.format);
+    const qq = state.q || {};
+    if (kind === "audio") {
+      const aq = qq.audio ?? S.audio.q;
+      const q = LOSSY.has(format) ? (aq === "best" ? "best" : `${aq} kbps`) : "";
+      return `${format.toUpperCase()}${q ? " · " + q : ""}`;
+    }
+    const vq = qq.video ?? S.video.q;
+    const q = vq === "best" ? "best" : HEIGHT_LABEL[vq] || `${vq}p`;
+    return `${format.toUpperCase()} · ${q}`;
+  }
+  return `${kindLabel("audio")} · ${kindLabel("video")}`;
 }
 
 function selectionSpec() {
@@ -372,8 +430,13 @@ function selectionSpec() {
   return S.selection.size === avail ? null : compressSelection([...S.selection]);
 }
 
-async function submit(urls, btn) {
-  const body = buildBody(urls);
+async function submit(urls, btn, { kind } = {}) {
+  let useKind = kind;
+  if (!useKind) {
+    useKind = await pickDownloadKind();
+    if (!useKind) return null;
+  }
+  const body = buildBody(urls, useKind);
   const spec = urls.length === 1 && urls[0] === S.urls[0] ? selectionSpec() : null;
   if (spec) body.playlist_items = spec;
   const res = await withBusy(btn, () => api.create(body));
@@ -387,9 +450,10 @@ async function submit(urls, btn) {
 async function onGo() {
   if (!S.urls.length) return;
   try {
-    await submit(S.urls, $("#go-btn"));
+    const res = await submit(S.urls, $("#go-btn"));
+    if (!res) return;
     $("#url-input").value = "";
-    S.urls = []; S.o.folder = ""; $("#o-folder").value = "";
+    S.urls = []; S.o.folder = ""; if ($("#o-folder")) $("#o-folder").value = "";
     clearPreview(); readUrls();
   } catch (e) { toast(e.detail || e.message, "err", { title: "Could not queue" }); }
 }
@@ -415,6 +479,35 @@ async function onCartAdd() {
   });
 }
 
+function formatSummaryText() {
+  return `Audio ${kindLabel("audio")} · Video ${kindLabel("video")}`;
+}
+
+/** Collapsed download rail — Settings + Download/Cart live in the panel. */
+function setComposerRail(open) {
+  const rail = $("#composer-rail");
+  const panel = $("#composer-rail-panel");
+  const toggle = $("#composer-rail-toggle");
+  if (!rail || !panel || !toggle) return;
+  const on = !!open;
+  rail.classList.toggle("is-open", on);
+  panel.hidden = !on;
+  toggle.setAttribute("aria-expanded", on ? "true" : "false");
+  const hint = toggle.querySelector(".composer-rail-hint");
+  if (hint) hint.textContent = on ? "tap to collapse" : "tap to expand";
+}
+
+function composerRailOpen() {
+  return $("#composer-rail")?.classList.contains("is-open");
+}
+
+/** Open the rail when there is something to download (Link paste / playlist pick). */
+function ensureComposerRailForSubmit() {
+  const n = S.urls.length;
+  const sel = S.preview?.kind === "playlist" && n === 1 ? S.selection.size : null;
+  if (n > 0 && sel !== 0) setComposerRail(true);
+}
+
 function updateGo() {
   const btn = $("#go-btn"), label = $("#go-label"), sub = $("#go-sub");
   const n = S.urls.length;
@@ -422,59 +515,79 @@ function updateGo() {
   btn.disabled = n === 0 || sel === 0;
   $("#cart-add-btn").disabled = n === 0 || sel === 0;
   label.textContent = sel != null ? (sel === 0 ? "Select at least one track" : `Download ${sel} track${sel === 1 ? "" : "s"}`) : n > 1 ? `Download ${n} links` : "Download";
-  const vq = effectiveVideoQuality();
-  const q = S.kind === "audio" ? (LOSSY.has(S.format) ? (S.q.audio === "best" ? "best" : `${S.q.audio} kbps`) : "") : (vq === "best" ? "best" : HEIGHT_LABEL[vq] || `${vq}p`);
-  const dest = S.cfg?.server_mode ? " → saved to your device" : S.preview ? ` → downloads/${S.preview.folder_preview}` : "";
-  sub.textContent = `${S.format.toUpperCase()}${q ? " · " + q : ""}${dest}`;
+  const fmt = formatSummaryText();
+  const dest = S.cfg?.server_mode ? " · pick Audio or Video when you download" : S.preview ? ` · downloads/${S.preview.folder_preview}` : " · pick Audio or Video when you download";
+  if (sub) {
+    sub.innerHTML = `${esc(fmt)}${esc(dest)} · <button type="button" class="linkish" data-open-dl-defaults>change</button>`;
+  }
+  const chip = $("#dl-defaults-summary");
+  if (chip) chip.textContent = fmt;
+  const detail = $("#dl-defaults-detail");
+  if (detail) detail.textContent = fmt;
+  ensureComposerRailForSubmit();
 }
 
 // ───────────────────────── search ─────────────────────────
 
-async function doSearch(e) {
-  e.preventDefault();
+let searchSeq = 0;
+let searchPage = 1;
+let searchPages = 1;
+
+async function doSearch(e, page = 1) {
+  e?.preventDefault?.();
   const q = $("#search-input").value.trim();
   if (q.length < 2) return;
+  const music = !!getUiPrefs().omnibarMusic;
+  const my = ++searchSeq;
+  const want = Math.max(1, Math.min(10, Number(page) || 1));
   const host = $("#search-results");
   host.innerHTML = Array.from({ length: 4 }, () => `<div class="result"><div class="skeleton" style="width:92px;height:52px"></div><div style="flex:1"><div class="skeleton" style="height:13px;width:80%;margin-bottom:7px"></div><div class="skeleton" style="height:11px;width:40%"></div></div></div>`).join("");
   try {
-    S.searchResults = await api.search(q, $("#search-music").checked);
-    if (!S.searchResults.length) { host.innerHTML = `<div class="muted text-center p-3">No results.</div>`; return; }
-    host.innerHTML = resultsHTML(S.searchResults);
+    const data = await api.search(q, music, { page: want, limit: 12 });
+    if (my !== searchSeq) return;
+    const rows = data.entries || [];
+    searchPage = data.page || want;
+    searchPages = data.pages || 1;
+    S.searchResults = rows;
+    if (!rows.length) { host.innerHTML = `<div class="muted text-center p-3">No results.</div>`; return; }
+    host.innerHTML = resultsHTML(rows) + pagerHTML({ page: searchPage, pages: searchPages });
   } catch (err) {
+    if (my !== searchSeq) return;
     const msg = err.detail || err.message;
     maybeCookieBanner(msg);
     host.innerHTML = `<div class="job-error"><i class="bi bi-exclamation-octagon-fill"></i><span>${esc(msg)}</span></div>`;
   }
 }
 
-/** Track rows + the "play all / shuffle / cart / download all" bar — shared by search results and the home feed. */
+/** Track cards + bulk bar — click a card to play; cart / download stay on the action strip. */
 function resultsHTML(list) {
   return list.map((r, i) => `
-      <div class="result" data-key="yt:${esc(r.video_id)}" style="animation-delay:${Math.min(i, 14) * 35}ms">
-        <img loading="lazy" alt="" src="${esc(r.thumbnail || "")}" onerror="this.style.visibility='hidden'">
-        <div style="flex:1;min-width:0">
+      <div class="result" data-i="${i}" data-key="yt:${esc(r.video_id)}" style="--i:${i};animation-delay:${Math.min(i, 14) * 35}ms" role="button" tabindex="0" title="Play">
+        <img class="r-thumb" loading="lazy" alt="" src="${esc(r.thumbnail || "")}" onerror="this.style.visibility='hidden'">
+        <div class="r-meta">
           <div class="r-title clamp-2">${esc(r.title)}</div>
-          <div class="muted" style="font-size:12px">${esc(r.uploader || "")}${r.duration ? ` · ${fmtDuration(r.duration)}` : ""}</div>
+          <div class="r-sub">${esc(r.uploader || "")}${r.duration ? ` · ${fmtDuration(r.duration)}` : ""}</div>
         </div>
-        <button class="btn-icon info" data-play="${i}" aria-label="Play preview" title="Play preview"><i class="bi bi-play-fill"></i></button>
-        <button class="btn-icon" data-cart="${i}" aria-label="Add to cart" title="Add to cart"><i class="bi bi-bag-plus"></i></button>
-        <button class="btn-icon ok" data-dl="${i}" aria-label="Download" title="Download"><i class="bi bi-download"></i></button>
-      </div>`).join("") + `<div class="flex gap-2 mt-1">
-        <button class="btn-ghost flex-1" data-play-all><i class="bi bi-play-circle"></i>Play all</button>
-        <button class="btn-ghost flex-1" data-shuffle-all><i class="bi bi-shuffle"></i>Shuffle</button>
-        <button class="btn-ghost flex-1" data-cart-all><i class="bi bi-bag-plus"></i>All to cart</button>
-        <button class="btn-ghost flex-1" data-dl-all><i class="bi bi-cloud-download"></i>Download all ${list.length}</button></div>`;
+        <div class="r-acts">
+          <button class="btn-icon" data-cart="${i}" aria-label="Add to cart" title="Add to cart"><i class="bi bi-cart-plus"></i></button>
+          <button class="btn-icon ok" data-dl="${i}" aria-label="Download" title="Download"><i class="bi bi-download"></i></button>
+        </div>
+      </div>`).join("") + `<div class="results-toolbar">
+        <button class="btn-ghost" data-play-all><i class="bi bi-play-circle"></i>Play all</button>
+        <button class="btn-ghost" data-shuffle-all><i class="bi bi-shuffle"></i>Shuffle</button>
+        <button class="btn-ghost" data-cart-all><i class="bi bi-cart-plus"></i>All to cart</button>
+        <button class="btn-ghost" data-dl-all><i class="bi bi-cloud-download"></i>Download all ${list.length}</button></div>`;
 }
 
 /** Click handler for a ``.results`` list; ``list()`` returns the entries it currently shows. */
 async function onResultClick(e, list = () => S.searchResults) {
   const items = list();
-  const play = e.target.closest("[data-play]");
-  const playAll = e.target.closest("[data-play-all]");
-  if (e.target.closest("[data-shuffle-all]")) { window.dispatchEvent(new CustomEvent("player-play", { detail: { tracks: items.map(ytTrack), shuffle: true } })); return; }
-  if (play || playAll) {
-    const tracks = items.map(ytTrack);
-    window.dispatchEvent(new CustomEvent("player-play", { detail: { tracks, start: play ? Number(play.dataset.play) : 0 } }));
+  if (e.target.closest("[data-shuffle-all]")) {
+    window.dispatchEvent(new CustomEvent("player-play", { detail: { tracks: items.map(ytTrack), shuffle: true } }));
+    return;
+  }
+  if (e.target.closest("[data-play-all]")) {
+    window.dispatchEvent(new CustomEvent("player-play", { detail: { tracks: items.map(ytTrack), start: 0 } }));
     return;
   }
   const cartOne = e.target.closest("[data-cart]");
@@ -482,12 +595,20 @@ async function onResultClick(e, list = () => S.searchResults) {
   if (e.target.closest("[data-cart-all]")) { toCart(items); $$("[data-cart]", e.currentTarget).forEach((b) => b.classList.add("added")); return; }
   const one = e.target.closest("[data-dl]");
   const all = e.target.closest("[data-dl-all]");
-  if (!one && !all) return;
-  const btn = one || all;
-  try {
-    const urls = one ? [items[+one.dataset.dl].url] : items.map((r) => r.url);
-    await submit(urls, btn);
-  } catch (err) { toast(err.detail || err.message, "err"); }
+  if (one || all) {
+    const btn = one || all;
+    try {
+      const urls = one ? [items[+one.dataset.dl].url] : items.map((r) => r.url);
+      await submit(urls, btn);
+    } catch (err) { toast(err.detail || err.message, "err"); }
+    return;
+  }
+  // Card body → play that track in context of the list
+  const card = e.target.closest(".result[data-i]");
+  if (!card || e.target.closest(".r-acts")) return;
+  const start = Number(card.dataset.i);
+  if (!Number.isFinite(start) || !items[start]) return;
+  window.dispatchEvent(new CustomEvent("player-play", { detail: { tracks: items.map(ytTrack), start } }));
 }
 
 /** Fill the "Folder name" suggestions with the folders that already exist. */
@@ -556,43 +677,110 @@ function openAccountPlaylist(i) {
 
 // ───────────────────────── init ─────────────────────────
 
-function setSource(src) {
+function setSource(src, { focus = true } = {}) {
   S.src = src;
   $$("#src-seg button").forEach((b) => b.classList.toggle("active", b.dataset.src === src));
   $("#src-link").hidden = src !== "link";
   $("#src-search").hidden = src !== "search";
   $("#src-account").hidden = src !== "account";
   if (src === "account") loadAccount();
+  else if (!focus) return;
   else if (src === "search") setTimeout(() => $("#search-input").focus(), 50);
   else $("#url-input").focus();
 }
 
 export function focusInput() { setSource("link"); $("#url-input").focus(); }
 
+/** Top omnibar / paste: drop links into the Link pane and open New download. */
+export function acceptLinks(text) {
+  setSource("link");
+  const box = $("#url-input");
+  box.value = String(text || "").trim();
+  readUrls();
+  window.dispatchEvent(new CustomEvent("go-new"));
+  setTimeout(() => box.focus(), 40);
+}
+
+/**
+ * Top omnibar search: flip to Search, fill the query, optionally run the form.
+ * When ``results`` is passed, paint them without a second network round-trip.
+ */
+export function acceptSearchQuery(q, { music, submit = true, results = null, page = 1, pages = 1, focus = false } = {}) {
+  setSource("search", { focus });
+  $("#search-input").value = String(q || "");
+  if (music != null && getUiPrefs().omnibarMusic !== !!music) {
+    // Only write when it actually flips — avoids ui-prefs → search feedback loops.
+    setUiPrefs({ omnibarMusic: !!music });
+  }
+  // Keep the visitor on whatever tab they were on when the omnibar searched;
+  // only jump to New when they explicitly open a link (acceptLinks) or ask for focus.
+  if (focus) window.dispatchEvent(new CustomEvent("go-new"));
+  if (results) {
+    S.searchResults = results;
+    searchPage = Math.max(1, Math.min(10, Number(page) || 1));
+    searchPages = Math.max(1, Math.min(10, Number(pages) || 1));
+    $("#search-results").innerHTML = results.length
+      ? resultsHTML(results) + pagerHTML({ page: searchPage, pages: searchPages })
+      : `<div class="muted text-center p-3">No results.</div>`;
+    return;
+  }
+  if (submit && String(q || "").trim().length >= 2) {
+    $("#search-form").requestSubmit();
+  }
+}
+
+export const renderResultsHTML = (list) => resultsHTML(list);
+export const handleResultClick = (e, listFn) => onResultClick(e, listFn);
+
 export function initComposer(cfg) {
   S.cfg = cfg;
   S.o.thumb = cfg.embed_thumbnail; S.o.meta = cfg.embed_metadata; S.o.num = cfg.playlist_numbering !== false;
   const fmt = cfg.default_format;
-  S.kind = cfg.audio_formats.includes(fmt) ? "audio" : "video"; S.format = fmt;
-  S.q = { audio: cfg.default_audio_quality, video: cfg.default_video_quality };
+  if (cfg.audio_formats?.includes(fmt)) S.audio.format = fmt;
+  else if (cfg.video_formats?.includes(fmt)) S.video.format = fmt;
+  if (cfg.default_audio_quality) S.audio.q = String(cfg.default_audio_quality);
+  if (cfg.default_video_quality) S.video.q = String(cfg.default_video_quality);
   const saved = store("mst.prefs");
   if (saved) {
-    if (FORMATS[saved.kind]?.includes(saved.format)) { S.kind = saved.kind; S.format = saved.format; }
-    Object.assign(S.q, saved.q || {});
+    // New shape: { audio, video, o }
+    if (saved.audio?.format && FORMATS.audio.includes(saved.audio.format)) S.audio.format = saved.audio.format;
+    if (saved.audio?.q != null) S.audio.q = String(saved.audio.q);
+    if (saved.video?.format && FORMATS.video.includes(saved.video.format)) S.video.format = saved.video.format;
+    if (saved.video?.q != null) S.video.q = String(saved.video.q);
+    // Legacy shape: { kind, format, q }
+    if (saved.kind === "audio" && FORMATS.audio.includes(saved.format)) {
+      S.audio.format = saved.format;
+      if (saved.q?.audio != null) S.audio.q = String(saved.q.audio);
+    }
+    if (saved.kind === "video" && FORMATS.video.includes(saved.format)) {
+      S.video.format = saved.format;
+      if (saved.q?.video != null) S.video.q = String(saved.q.video);
+    }
+    if (saved.q?.audio != null && !saved.audio) S.audio.q = String(saved.q.audio);
+    if (saved.q?.video != null && !saved.video) S.video.q = String(saved.q.video);
     Object.assign(S.o, saved.o || {}, { folder: "" });
   }
 
-  renderFormat(); renderQuality(); renderOptions(); updateGo();
+  refreshAll();
 
   $("#src-seg").addEventListener("click", (e) => { const b = e.target.closest("[data-src]"); if (b) setSource(b.dataset.src); });
-  $("#kind-seg").addEventListener("click", (e) => { const b = e.target.closest("[data-kind]"); if (b) setKind(b.dataset.kind); });
-  $("#format-chips").addEventListener("click", (e) => { const b = e.target.closest("[data-f]"); if (b) { S.format = b.dataset.f; refreshAll(); } });
-  $("#quality-chips").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-q]");
-    if (!b || b.classList.contains("is-disabled")) return;
-    S.q[S.kind] = b.dataset.q; refreshAll();
+  $("#audio-format-chips")?.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-af]"); if (!b) return;
+    S.audio.format = b.dataset.af; refreshAll();
   });
-  $("#pl-seg").addEventListener("click", (e) => {
+  $("#audio-quality-chips")?.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-aq]"); if (!b) return;
+    S.audio.q = b.dataset.aq; refreshAll();
+  });
+  $("#video-format-chips")?.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-vf]"); if (!b) return;
+    S.video.format = b.dataset.vf; refreshAll();
+  });
+  $("#video-quality-chips")?.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-vq]"); if (!b) return;
+    S.video.q = b.dataset.vq; refreshAll();
+  });
+  $("#pl-seg")?.addEventListener("click", (e) => {
     const b = e.target.closest("[data-mode]");
     if (!b) return;
     S.o.plmode = b.dataset.mode; renderOptions(); savePrefs();
@@ -600,17 +788,25 @@ export function initComposer(cfg) {
   });
 
   // switches/selects re-render dependent UI; free-text inputs only store (re-rendering would fight the caret)
-  const bind = (id, key, prop = "checked", rerender = true) => $(id).addEventListener("input", (e) => {
-    S.o[key] = e.target[prop];
-    if (rerender) renderOptions();
-    savePrefs();
-  });
+  const bind = (id, key, prop = "checked", rerender = true) => {
+    const el = $(id); if (!el) return;
+    el.addEventListener("input", (e) => {
+      S.o[key] = e.target[prop];
+      if (rerender) renderOptions();
+      savePrefs();
+    });
+  };
   bind("#o-thumb", "thumb"); bind("#o-meta", "meta"); bind("#o-subs", "subs"); bind("#o-over", "over"); bind("#o-sb", "sb"); bind("#o-num", "num");
   bind("#o-speed", "speed", "value");
   bind("#o-langs", "langs", "value", false); bind("#o-folder", "folder", "value", false);
 
-  $("#adv").addEventListener("show.bs.collapse", () => { $("#adv-chev").style.transform = "rotate(180deg)"; });
-  $("#adv").addEventListener("hide.bs.collapse", () => { $("#adv-chev").style.transform = ""; });
+  $("#composer-rail-toggle")?.addEventListener("click", () => setComposerRail(!composerRailOpen()));
+  $("#open-dl-defaults")?.addEventListener("click", () => window.dispatchEvent(new CustomEvent("open-settings", { detail: { focus: "dl-defaults" } })));
+  $("#go-sub")?.addEventListener("click", (e) => {
+    if (e.target.closest("[data-open-dl-defaults]")) {
+      window.dispatchEvent(new CustomEvent("open-settings", { detail: { focus: "dl-defaults" } }));
+    }
+  });
 
   const input = $("#url-input");
   input.addEventListener("input", readUrls);
@@ -650,14 +846,22 @@ export function initComposer(cfg) {
   $("#go-btn").addEventListener("click", onGo);
   $("#cart-add-btn").addEventListener("click", onCartAdd);
   $("#search-form").addEventListener("submit", doSearch);
-  $("#search-results").addEventListener("click", (e) => onResultClick(e, () => S.searchResults));
+  $("#search-results").addEventListener("click", (e) => {
+    const pg = e.target.closest(".results-pager [data-page]");
+    if (pg) {
+      e.preventDefault(); e.stopPropagation();
+      if (!pg.disabled) doSearch(null, Number(pg.dataset.page));
+      return;
+    }
+    onResultClick(e, () => S.searchResults);
+  });
   $("#acc-feed").addEventListener("click", (e) => onResultClick(e, () => S.feed));
   $("#acc-playlists").addEventListener("click", (e) => { const c = e.target.closest("[data-pl]"); if (c) openAccountPlaylist(+c.dataset.pl); });
   $("#acc-msg").addEventListener("click", (e) => { if (e.target.closest("[data-acc-cookies]")) window.dispatchEvent(new CustomEvent("open-cookies")); });
   $("#acc-refresh").addEventListener("click", () => loadAccount(true));
   window.addEventListener("cookies-changed", () => { S.accLoaded = false; if (S.src === "account") loadAccount(true); });
   window.addEventListener("player-change", (e) => {
-    document.querySelectorAll("#search-results .result, #acc-feed .result").forEach((el) => el.classList.toggle("is-playing", !!e.detail.key && el.dataset.key === e.detail.key));
+    document.querySelectorAll("#search-results .result, #acc-feed .result, #omnibar-results .result").forEach((el) => el.classList.toggle("is-playing", !!e.detail.key && el.dataset.key === e.detail.key));
   });
   // "Download this" button on the mini player (YouTube tracks)
   window.addEventListener("queue-download", async (e) => {

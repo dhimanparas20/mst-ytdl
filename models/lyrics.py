@@ -23,3 +23,6 @@ class Lyrics(BaseModel):
     instrumental: bool = False
     source: str = ""  # provider name, shown as attribution
     message: str = ""  # why nothing was found (provider down, disabled …)
+    language: str = ""  # ISO-ish code of the returned text (``en``, ``ko``, …); empty if unknown
+    requested: str = "auto"  # what the client asked for (``auto`` = original)
+    translated: bool = False  # True when the text was machine-translated to ``requested``

@@ -4,6 +4,7 @@
 import { api } from "./api.js";
 import { loadDeliveries } from "./deliveries.js";
 import { fileTrack } from "./player.js";
+import { getUiPrefs } from "./prefs.js";
 import { confirmDialog, promptDialog, toast, withBusy } from "./ui.js";
 import { $, esc, fmtBytes, fmtDate, setText } from "./util.js";
 
@@ -160,8 +161,10 @@ async function moveSelected(paths) {
 }
 
 async function deleteMany(paths, label) {
-  const ok = await confirmDialog({ title: "Delete permanently?", body: `${label} will be removed from disk. This cannot be undone.`, confirmText: "Delete", danger: true });
-  if (!ok) return;
+  if (getUiPrefs().confirmDelete) {
+    const ok = await confirmDialog({ title: "Delete permanently?", body: `${label} will be removed from disk. This cannot be undone.`, confirmText: "Delete", danger: true });
+    if (!ok) return;
+  }
   try {
     const r = await api.libBulkDelete(paths);
     toast(`Deleted ${r.deleted} item${r.deleted === 1 ? "" : "s"} (${r.files} file${r.files === 1 ? "" : "s"})${r.errors.length ? ` · ${r.errors.length} failed` : ""}`, "ok", { ms: 3000 });

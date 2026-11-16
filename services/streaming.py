@@ -32,16 +32,19 @@ import time
 from collections import OrderedDict
 from collections.abc import Iterator
 from dataclasses import dataclass
+from http.cookiejar import MozillaCookieJar
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import requests
 from yt_dlp import YoutubeDL
 
+from configs import get_settings
 from models import QualityOption, StreamFormat, StreamInfo, SubtitleTrack
 from modules import get_logger
-from services.errors import InvalidRequestError, UpstreamError
-from services.ytdl_opts import base_extract_opts, cookie_scope_tag, friendly_error
+from services.errors import InvalidRequestError, NotFoundError, RateLimitedError, UpstreamError
+from services.ytdl_opts import active_cookiefile, base_extract_opts, cookie_scope_tag, friendly_error
 
 logger = get_logger(__name__)
 
@@ -78,6 +81,69 @@ class MediaStream:
 def _http_get(url: str, headers: dict[str, str], timeout: float = 20.0) -> requests.Response:
     """The only outbound HTTP call (isolated so tests can replace it)."""
     return requests.get(url, headers=headers, stream=True, timeout=timeout)
+
+
+def _cookie_jar() -> MozillaCookieJar | None:
+    """Netscape jar for timedtext.
+
+    Prefers the active cookie scope (visitor / shared server). When the visitor has none
+    (server mode with ``share_server_cookies`` off), falls back to the server jar — public
+    captions are not account-private, and bare timedtext 429s without a login session.
+    """
+    path = active_cookiefile()
+    if not path or not Path(path).is_file():
+        p = get_settings().download.cookies_path
+        path = str(p) if p.is_file() else None
+    if not path:
+        return None
+    jar = MozillaCookieJar(path)
+    try:
+        jar.load(ignore_discard=True, ignore_expires=True)
+    except OSError:
+        return None
+    return jar
+
+
+_SUB_ATTEMPTS = 3
+_SUB_RETRY_S = 0.8
+# Prefer formats the browser can use; json3 is a solid fallback when VTT is rate-limited.
+_SUB_EXTS = ("vtt", "srt", "json3")
+
+
+def _json3_to_vtt(text: str) -> str:
+    """Convert YouTube's json3 timedtext payload into WebVTT."""
+    import json
+
+    data = json.loads(text)
+    lines = ["WEBVTT", ""]
+    for ev in data.get("events") or []:
+        segs = ev.get("segs") or []
+        body = "".join(s.get("utf8") or "" for s in segs).replace("\n", " ").strip()
+        if not body or body == "\n":
+            continue
+        start = int(ev.get("tStartMs") or 0)
+        dur = int(ev.get("dDurationMs") or 2000)
+        end = start + max(dur, 200)
+
+        def stamp(ms: int) -> str:
+            h, rem = divmod(ms, 3_600_000)
+            m, rem = divmod(rem, 60_000)
+            s, milli = divmod(rem, 1000)
+            return f"{h:02d}:{m:02d}:{s:02d}.{milli:03d}"
+
+        lines.append(f"{stamp(start)} --> {stamp(end)}")
+        lines.append(body)
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _srt_to_vtt(text: str) -> str:
+    """Minimal SRT → WebVTT (comma millis → dot)."""
+    body = text.lstrip("\ufeff")
+    if body.startswith("WEBVTT"):
+        return body
+    body = re.sub(r"(\d{2}:\d{2}:\d{2}),(\d{3})", r"\1.\2", body)
+    return "WEBVTT\n\n" + body
 
 
 class StreamService:
@@ -377,25 +443,67 @@ class StreamService:
         """A subtitle track as clean WebVTT text.
 
         Raises:
-            InvalidRequestError: no such track / not available as WebVTT.
-            UpstreamError: fetching the track failed.
+            InvalidRequestError: no such track / not a YouTube host.
+            RateLimitedError: YouTube rate-limited the timedtext endpoint.
+            NotFoundError: track listed but nothing usable came back.
+            UpstreamError: network failure reaching YouTube.
         """
         raw, _ = self._get(video_id)
         tracks = (raw.get("automatic_captions") if auto else raw.get("subtitles")) or {}
         entries = tracks.get(lang) or []
-        pick = next((e for e in entries if e.get("ext") == "vtt"), None)
-        if not pick or not pick.get("url"):
+        by_ext = {e.get("ext"): e for e in entries if e.get("url")}
+        picks = [by_ext[ext] for ext in _SUB_EXTS if ext in by_ext]
+        if not picks:
             raise InvalidRequestError(f"No WebVTT subtitles for '{lang}'")
-        host = urlparse(pick["url"]).hostname or ""
-        if not _HOST_OK.search(host):
-            raise InvalidRequestError("Refusing to fetch a non-YouTube host")
-        try:
-            r = requests.get(pick["url"], timeout=20)
-        except requests.RequestException as exc:
-            raise UpstreamError(f"Could not fetch subtitles: {exc}") from exc
-        if r.status_code != 200 or "WEBVTT" not in r.text[:20]:
-            raise UpstreamError("YouTube returned no usable subtitles")
-        return clean_vtt(r.text)
+
+        headers = dict(raw.get("http_headers") or {})
+        headers.setdefault(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        )
+        jar = _cookie_jar()  # timedtext 429s without a login session (verified live)
+        last_status = 0
+        saw_429 = False
+
+        for pick in picks:
+            host = urlparse(pick["url"]).hostname or ""
+            if not _HOST_OK.search(host):
+                raise InvalidRequestError("Refusing to fetch a non-YouTube host")
+            for attempt in range(_SUB_ATTEMPTS):
+                try:
+                    r = requests.get(pick["url"], timeout=20, headers=headers, cookies=jar)
+                except requests.RequestException as exc:
+                    raise UpstreamError(f"Could not fetch subtitles: {exc}") from exc
+                last_status = r.status_code
+                if r.status_code == 429:
+                    saw_429 = True
+                    if attempt < _SUB_ATTEMPTS - 1:
+                        time.sleep(_SUB_RETRY_S * (attempt + 1))
+                        continue
+                    break
+                if r.status_code != 200 or not r.text.strip():
+                    break
+                ext = pick.get("ext")
+                text = r.text
+                try:
+                    if ext == "vtt" or text.lstrip().startswith("WEBVTT"):
+                        if "WEBVTT" not in text[:20]:
+                            break
+                        return clean_vtt(text)
+                    if ext == "srt":
+                        return clean_vtt(_srt_to_vtt(text))
+                    if ext == "json3":
+                        return clean_vtt(_json3_to_vtt(text))
+                except (ValueError, KeyError, TypeError):
+                    break
+                break
+
+        if saw_429:
+            raise RateLimitedError("YouTube rate-limited subtitles — try again in a moment")
+        if last_status in (401, 403, 404):
+            raise NotFoundError("Those subtitles are not available right now")
+        raise NotFoundError("YouTube returned no usable subtitles")
 
 
 def clean_vtt(text: str) -> str:

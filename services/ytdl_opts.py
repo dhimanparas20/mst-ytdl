@@ -286,6 +286,16 @@ def cookie_scope_tag() -> str:
     return scope[1] if scope else ""
 
 
+def active_cookiefile() -> str | None:
+    """Path of the Netscape jar the current scope would hand to yt-dlp, or ``None`` if none."""
+    scope = _COOKIE_SCOPE.get()
+    if scope is not None:
+        path = scope[0].get("cookiefile")
+        return str(path) if path else None
+    p = get_settings().download.cookies_path
+    return str(p) if p.is_file() else None
+
+
 def _apply_cookies(opts: dict[str, Any], dl) -> None:
     scope = _COOKIE_SCOPE.get()
     if scope is not None:

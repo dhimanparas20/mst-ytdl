@@ -4,6 +4,8 @@ Call sites always do ``from models import DownloadJob``, never module paths.
 """
 
 from models.account import AccountFeed, AccountPlaylist, AccountPlaylists
+from models.explore import ExploreFeed
+from models.paging import SearchResults
 from models.cookies import CookieStatus, CookieTestResult
 from models.download import (
     CartEntry,
@@ -56,6 +58,8 @@ __all__ = [
     "AccountFeed",
     "AccountPlaylist",
     "AccountPlaylists",
+    "ExploreFeed",
+    "SearchResults",
     "CookieStatus",
     "LyricLine",
     "Lyrics",

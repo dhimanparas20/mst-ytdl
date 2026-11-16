@@ -4,6 +4,17 @@ A self-hosted **YouTube & YouTube Music downloader**: FastAPI + Huey (Redis) + y
 
 Paste a video, a song, an album or a whole playlist → pick MP3 / MP4 (and more) and a quality → watch it download live, with **pause / resume / cancel / retry**, parallel workers and per-item status.
 
+### Pages
+
+| URL | Page |
+|---|---|
+| `/` | **Home** — Link / Search / Mine + **Explore** (For you when signed in; Music / Videos also for anonymous if Settings → experimental Explore is on) |
+| `/download` | **Downloads** — live queue dashboard (same controls as before) |
+| `/library` | **Library** — browse, play, zip (Your downloads in server mode) |
+| `/admin` | Admin dashboard (separate) |
+
+The top bar (omnibar, status, music cart) and the player stay on every page. Submitting a download jumps to `/download`; opening a folder jumps to `/library`. Download format / quality / options (Settings → **Download defaults**, localStorage `mst.prefs`), theme colour / brightness and other UI prefs (motion, compact queue, auto-save, confirm-delete, Music links, explore default, lyrics language, **results layout**: list / cards / posters / stack / cinema / mosaic) live in this browser only (`localStorage` `mst.theme` / `mst.ui`) — never Redis. On desktop the top bar and page content share one width.
+
 ![Downloads: search, format picker and the live queue](docs/screenshots/downloads.webp)
 
 ```
@@ -36,7 +47,7 @@ downloads/
 
 ## In-app player (play anything, no downloading needed)
 
-A docked player plus a **floating video window** (drag by the header, resize from any corner, snap to edges, S/M/L presets, fullscreen, picture-in-picture; position is remembered; docks above the player on phones).
+A docked player plus a **floating video window** (drag by the header, resize from any corner, snap to edges, S/M/L presets, fullscreen, picture-in-picture; position is remembered; docks above the player on phones). The dock has an **Equalizer** (sliders icon): enable it, pick a preset (Bass boost, Vocal, Electronic, Cinema…), or tune **preamp / bass / mids / treble**, a **10-band graphic EQ**, and **surround** (stereo width). Settings stay in this browser (`localStorage` `mst.eq`) via the shared Web Audio graph.
 
 - **Plays every YouTube video yt-dlp can read** — streams are relayed by *our* server (`/api/stream/<id>/…`, Range-capable), not YouTube's iframe, so "owner disabled embedding" never blocks you. Above YouTube's muxed 720p the picture and sound are separate streams, played as two clock-synced elements.
 - **Quality** (Auto / 1080p / 720p / … / Audio only), **subtitles** (manual + auto captions, size S/M/L; also for downloaded videos: embedded tracks via ffmpeg + `.srt/.vtt` sidecars), **speed** 0.5–2×, volume, seek with buffered range + hover time, repeat (off/all/one), **true shuffle** (every track once per cycle), reorderable queue (drag), *shuffle rest*, **sleep timer** (15–60 min or end of track, fades out), media-keys/OS controls.
@@ -60,7 +71,7 @@ A docked player plus a **floating video window** (drag by the header, resize fro
   <tr><td colspan="2" align="center"><sub>Orbit · the ring is the live audio spectrum</sub></td></tr>
 </table>
 
-While something plays, **✦** in the player (or `V`) opens a full-screen player over the blurred, slowly drifting cover art, with an animated scene that reacts to the music (Web Audio analyser): **Turntable** (spinning record with the cover as label, tonearm swings on), **Aurora** (drifting light in the cover's colours), **Orbit** (spectrum ring around the cover), **Bars** (mirrored spectrum bars), **Ripple** (rings leave the cover on each beat), **Constellation** (linked stars that flare with the music), or **Random each track**. The **“** button (or `Y`) shows lyrics: time-synced lines highlight as they are sung (click a line to jump there), else plain text. Lyrics come from [LRCLIB](https://lrclib.net) (free, no key) through our server (`GET /api/lyrics`, cached in Redis); only the cleaned artist / title / duration are sent. `Esc` closes. Honours *reduce motion*.
+While something plays, **✦** in the player (or `V`) opens a full-screen player over the blurred, slowly drifting cover art, with an animated scene that reacts to the music (Web Audio analyser): **12 scenes**: Turntable, Aurora, Orbit, Bars, Ripple, Constellation, **Spiral**, **Tunnel**, **Waves**, **Rain**, **Kaleido**, **Bloom** — or **Random each track**. The **“** button (or `Y`) shows lyrics: time-synced lines highlight as they are sung (click a line to jump there), else plain text. Lyrics come from [LRCLIB](https://lrclib.net) (free, no key) through our server (`GET /api/lyrics?lang=`, cached in Redis). **Auto** keeps the original language; pick **English** (or another language) in Settings / the player lyrics panel to prefer a matching LRCLIB hit or machine-translate line-by-line. Only the cleaned artist / title / duration / language are sent. `Esc` closes. Honours *reduce motion*.
 
 ## Admin dashboard (`/admin`)
 
@@ -177,7 +188,7 @@ Each file rotates at 5 MB (5 backups). `LOG_ROLE` (`api` / `worker`, set by `mai
 - **Default download folder**: Settings → *Default download folder* (Browse lists existing folders or type a new one). Singles go straight into it, playlists into `<folder>/<Playlist name>`; a folder typed in the composer still wins. A browser cannot open a native file explorer for a server path; move the whole root with `DL_DOWNLOADS_DIR` (Docker: the compose volume).
 - **Filename numbering**: Options → *Number playlist tracks*. Off = `Title.mp3` instead of `01 - Title.mp3`. The server default is `DL_PLAYLIST_NUMBERING`.
 - **Album art in the player**: covers embedded in your files (and `Title.jpg` next to them) are served by `GET /api/library/cover` and shown in the dock, queue and library list.
-- **Storage bar** (Library tab): disk used / total / free, with the library's share highlighted; turns amber at 80 % and red at 92 %.
+- **Storage bar** (Library page): disk used / total / free, with the library's share highlighted; turns amber at 80 % and red at 92 %.
 
   ![Library with the storage bar](docs/screenshots/library.webp)
 
@@ -303,7 +314,7 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `POST /downloads/{id}/{pause\|resume\|cancel\|retry}` · `DELETE /downloads/{id}?delete_files=` | Job-level control / removal |
 | `GET /items/{id}` · `POST /items/{id}/{pause\|resume\|cancel\|retry}` | Single track |
 | `POST /queue/{pause-all\|resume-all\|cancel-all\|retry-failed\|clear-finished}` | Bulk |
-| `POST /info` · `GET /search?q=` | Preview a URL (title, qualities, playlist entries) / text search |
+| `POST /info` · `GET /search?q=&page=` · `GET /search/suggest` · `GET /explore?page=` | Preview / search (≤10 pages) / omnibar suggestions / Home Explore (paginated For you · Music · Videos) |
 | `POST /downloads/bulk` · `POST /downloads/{id}/restart` · `POST /items/{id}/restart` | Multi-select actions (`pause\|resume\|cancel\|retry\|restart\|remove\|remove-files`) / replace |
 | `GET /stream/{id}/info` · `/stream/{id}/media?format=` · `/stream/{id}/subs?lang=` | Player: qualities + subtitle tracks, ranged stream proxy, WebVTT |
 | `GET /library/cover?path=` | Album art of a downloaded audio file (embedded cover or `.jpg/.png/.webp` sidecar; 404 if none) |
@@ -318,7 +329,7 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `GET /my-cookies` · `PUT /my-cookies` `{text}` · `DELETE /my-cookies` · `POST /my-cookies/test` | Server mode: this visitor's own YouTube cookies (status never contains values; 422 in personal mode) |
 | `POST /connect` · `GET /connect/{code}` · `POST /connect/{code}` `{text}` · `GET /connect/extension.zip` | Extension sign-in: new one-time code `{code, expires_in, server}` · its state (`waiting` / `done`, owner only) · the extension's cookie upload (the code is the credential) · the extension, pre-set to this server |
 | `GET /account/playlists` · `GET /account/home?limit=` | The signed-in account's playlists (pinned Liked music / Liked videos / Watch later first) and home feed as tracks: `{signed_in, playlists \| entries, message}`; never an error for missing / expired cookies |
-| `GET /lyrics?title=&artist=&duration=` | Lyrics for the player: `{found, synced[{t, text}], plain, instrumental, source, message}` |
+| `GET /lyrics?title=&artist=&duration=&lang=` · `GET /lyrics/languages` | Lyrics for the player (`lang=auto` default; else prefer / translate): `{found, synced, plain, language, requested, translated, …}` |
 | `GET /admin` · `POST /admin/login` `{username, password}` · `POST /admin/logout` | Admin session (HttpOnly cookie); 403 wrong credentials, 429 locked out. The dashboard page itself is `GET /admin` (no `/api`) |
 | `GET /admin/overview` · `/admin/jobs` · `POST /admin/jobs/bulk` · `/admin/visitors` · `GET/POST /admin/bans` · `DELETE /admin/bans/{ip}` | Dashboard data: KPIs + statistics, every visitor's jobs and bulk actions, visitors, IP blocks |
 | `GET /admin/config` · `PUT /admin/config` `{values, reset[]}` | Live settings (hard ceilings, limits, retention, maintenance, defaults, engine) — validated all-or-nothing, applied to API and worker within seconds |

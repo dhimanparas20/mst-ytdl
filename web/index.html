@@ -18,9 +18,23 @@
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 
   <link href="/static/css/app.css" rel="stylesheet">
+  <script>
+    (function () {
+      try {
+        var raw = localStorage.getItem("mst.theme");
+        if (!raw) return;
+        var hex = (JSON.parse(raw) || {}).hex;
+        if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) return;
+        // coarse mid-tone only — theme.js refines on boot
+        document.documentElement.style.setProperty("--g2", hex);
+        document.documentElement.style.setProperty("--grad", "linear-gradient(135deg, " + hex + ", " + hex + ")");
+      } catch (e) {}
+    })();
+  </script>
 </head>
-<body data-tab="queue">
+<body data-page="home">
   <div class="orbs" aria-hidden="true"><i class="orb o1"></i><i class="orb o2"></i><i class="orb o3"></i></div>
+  <canvas id="ambient-fx" class="ambient-fx" aria-hidden="true" hidden></canvas>
 
   <div class="shell">
     <!-- ═════════ top bar ═════════ -->
@@ -29,14 +43,42 @@
         <div class="logo-mark"><i class="bi bi-cloud-arrow-down-fill"></i></div>
         <div class="logo-text"><b class="grad-text">mst-ytdl</b><small>YouTube &amp; YouTube Music downloader</small></div>
       </div>
-      <div class="ms-auto flex items-center gap-2">
-        <span id="mode-chip" class="tag mode-chip" tabindex="0" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="bottom" title="Mode"><i class="bi bi-laptop"></i><span class="d-none d-md-inline" id="mode-text">Local mode</span></span>
-        <span id="live-chip" class="tag" data-bs-toggle="tooltip" title="Live updates"><span class="live-dot off" id="live-dot"></span><span class="d-none d-sm-inline" id="live-text">connecting</span></span>
-        <button id="cookie-chip" class="tag cookie-chip none" type="button" hidden data-bs-toggle="tooltip" data-bs-placement="bottom" title="YouTube cookies"><i class="bi bi-key-fill"></i><span class="d-none d-lg-inline" id="cookie-chip-text">Cookies</span></button>
-        <button id="health-pill" class="health" type="button" data-bs-toggle="tooltip" title="Checking…"><span class="dot"></span><span class="h-text">Checking</span></button>
-        <button id="open-cart" class="btn-icon cart-btn" type="button" aria-label="Download cart" data-bs-toggle="tooltip" title="Download cart"><i class="bi bi-bag-fill"></i><span class="cart-count" id="cart-count">0</span></button>
+
+      <nav class="page-nav" id="page-nav" aria-label="Pages">
+        <a href="/" data-page="home" class="active"><i class="bi bi-house-door-fill"></i><span>Home</span></a>
+        <a href="/download" data-page="download"><i class="bi bi-lightning-charge-fill"></i><span>Downloads</span><span class="nav-badge" id="nav-badge-top" hidden>0</span></a>
+        <a href="/library" data-page="library"><i class="bi bi-collection-play-fill"></i><span>Library</span></a>
+      </nav>
+
+      <div id="omnibar" class="omnibar">
+        <button type="button" id="omnibar-expand" class="btn-icon omnibar-expand" aria-label="Search" title="Search"><i class="bi bi-search"></i></button>
+        <form id="omnibar-form" class="omnibar-form" autocomplete="off" role="search">
+          <i class="bi bi-search omnibar-ico" aria-hidden="true"></i>
+          <input id="omnibar-input" type="search" enterkeyhint="search"
+            placeholder="Search songs or paste a YouTube link…"
+            aria-label="Search YouTube or paste a link" maxlength="500">
+          <kbd class="omnibar-kbd d-none d-xl-inline">⌘K</kbd>
+          <button type="submit" id="omnibar-go" class="btn-icon sm" aria-label="Go" title="Search / open link"><i class="bi bi-arrow-return-left"></i></button>
+          <button type="button" id="omnibar-collapse" class="btn-icon sm omnibar-collapse" aria-label="Close search"><i class="bi bi-x-lg"></i></button>
+        </form>
+        <div id="omnibar-panel" class="omnibar-panel" hidden>
+          <div id="omnibar-status" class="omnibar-status faint small"></div>
+          <div id="omnibar-home" class="omnibar-home" hidden></div>
+          <div id="omnibar-results" class="results omnibar-results"></div>
+        </div>
+      </div>
+
+      <div class="topbar-actions ms-auto flex items-center gap-2">
+        <div id="status-wrap" class="status-wrap">
+          <button id="status-btn" class="btn-icon status-btn ok" type="button" aria-haspopup="true" aria-expanded="false" aria-label="System status" title="System status">
+            <i class="bi bi-activity"></i><span class="status-dot ok"></span>
+          </button>
+          <div id="status-menu" class="status-menu glass" hidden role="menu" aria-label="System status"></div>
+        </div>
+        <button id="open-cart" class="btn-icon cart-btn" type="button" aria-label="Music cart" data-bs-toggle="tooltip" title="Music cart"><svg class="ico-music-cart" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M7.2 18.5a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zm9.1 0a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4zM3.1 3.2h1.7l.35 1.6h13.2a1 1 0 0 1 .98 1.2l-1.2 5.6a1.6 1.6 0 0 1-1.56 1.25H7.55l.28 1.3h9.4a.9.9 0 0 1 0 1.8H7.1a1.4 1.4 0 0 1-1.37-1.1L3.86 4.1H2.2a.9.9 0 1 1 0-1.8h.9zm14.2 4.3H6.05l.55 2.5h10.05l.65-2.5z"/><path fill="currentColor" d="M16.2 2.2v6.1a2.05 2.05 0 1 1-1.3-.35V4.1l4.3-.85V2.2l-3 .85z"/></svg><span class="cart-count" id="cart-count">0</span></button>
         <button id="open-settings" class="btn-icon" type="button" aria-label="Settings" data-bs-toggle="tooltip" title="Settings"><i class="bi bi-sliders2"></i></button>
       </div>
+
     </header>
 
     <div id="maint-banner" class="cookie-banner maint-banner glass" hidden role="status">
@@ -53,12 +95,32 @@
 
     <div class="layout">
       <!-- ═════════ composer ═════════ -->
-      <section id="panel-new" aria-label="New download">
+      <section id="panel-new" class="page-panel" aria-label="New download">
+        <div id="home-explore" class="home-explore glass card-pad" hidden>
+          <div class="page-head mb-3">
+            <div>
+              <h2 id="explore-title">For you</h2>
+              <div class="sub" id="explore-sub">Needs a signed-in YouTube session</div>
+              <div class="explore-beta faint" id="explore-beta" hidden style="font-size:11.5px;margin-top:2px"><i class="bi bi-flask"></i> Experimental · may fail without cookies</div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="seg" id="explore-seg" role="tablist">
+                <button type="button" data-ex="for_you" class="active"><i class="bi bi-person-heart"></i>For you</button>
+                <button type="button" data-ex="music"><i class="bi bi-music-note-beamed"></i>Music</button>
+                <button type="button" data-ex="videos"><i class="bi bi-film"></i>Videos</button>
+              </div>
+              <div id="explore-layout" class="results-layout-host"></div>
+              <button type="button" class="btn-icon sm" id="explore-refresh" aria-label="Refresh" title="Refresh"><i class="bi bi-arrow-repeat"></i></button>
+            </div>
+          </div>
+          <div id="explore-results" class="results"></div>
+        </div>
+
         <div class="glass card-pad composer">
           <div class="flex items-center justify-between mb-3">
             <div>
-              <h2>New download</h2>
-              <div class="sub">Paste links, search, or drop a playlist.</div>
+              <h2>Find &amp; download</h2>
+              <div class="sub">Paste links, search, or open Mine — your queue lives on Downloads.</div>
             </div>
             <div class="seg" id="src-seg" role="tablist">
               <button type="button" class="active" data-src="link"><i class="bi bi-link-45deg"></i>Link</button>
@@ -86,7 +148,10 @@
               <input id="search-input" class="form-control" type="search" placeholder="Song, artist, video title…" autocomplete="off" minlength="2" maxlength="200">
               <button class="btn-grad" type="submit" style="padding:10px 16px"><i class="bi bi-search"></i></button>
             </form>
-            <div class="opt" style="padding-left:2px"><div><div class="opt-t" style="font-size:13px">Use YouTube Music links</div></div><div class="form-check form-switch m-0"><input id="search-music" class="form-check-input" type="checkbox"></div></div>
+            <div class="flex items-center justify-between gap-2 mt-2 flex-wrap">
+              <div class="faint small">Arrange results</div>
+              <div id="search-layout" class="results-layout-host"></div>
+            </div>
             <div id="search-results" class="results"></div>
           </div>
 
@@ -97,76 +162,56 @@
               <div class="field-label flex items-center justify-between"><span>Your playlists</span>
                 <button class="btn-icon sm" id="acc-refresh" type="button" aria-label="Reload" title="Reload"><i class="bi bi-arrow-repeat"></i></button></div>
               <div id="acc-playlists" class="pl-grid"></div>
-              <div class="field-label mt-3">Home feed <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">· what YouTube recommends to you</span></div>
+              <div class="field-label mt-3 flex items-center justify-between gap-2 flex-wrap"><span>Home feed <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">· what YouTube recommends to you</span></span>
+                <div id="acc-layout" class="results-layout-host"></div></div>
               <div id="acc-feed" class="results"></div>
             </div>
           </div>
 
-          <hr style="border-color:var(--stroke);opacity:1;margin:18px 0">
-
-          <!-- format -->
-          <div class="field-label">Format</div>
-          <div class="seg full mb-2" id="kind-seg">
-            <button type="button" class="active" data-kind="audio"><i class="bi bi-music-note-beamed"></i>Audio</button>
-            <button type="button" data-kind="video"><i class="bi bi-film"></i>Video</button>
-          </div>
-          <div id="format-chips" class="chips mb-3"></div>
-
-          <div class="field-label"><span id="quality-label">Quality</span><span id="quality-note" class="faint" style="text-transform:none;letter-spacing:0;font-weight:500"></span></div>
-          <div id="quality-chips" class="chips mb-3"></div>
-
-          <!-- advanced -->
-          <button class="btn-ghost w-100 mb-2" id="adv-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#adv" aria-expanded="false">
-            <i class="bi bi-toggles2"></i> Options <i class="bi bi-chevron-down ms-auto" id="adv-chev" style="transition:transform .3s"></i>
-          </button>
-          <div class="collapse" id="adv">
-            <div class="glass-in p-2 mb-3">
-              <div class="opt" id="opt-thumb"><div><div class="opt-t">Embed cover art</div><div class="opt-d" id="opt-thumb-d">Thumbnail becomes the file's artwork</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-thumb"></div></div>
-              <div class="opt"><div><div class="opt-t">Embed tags</div><div class="opt-d">Title, artist, album, chapters</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-meta"></div></div>
-              <div class="opt" id="opt-subs"><div><div class="opt-t">Subtitles</div><div class="opt-d">Download and embed (video only)</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-subs"></div></div>
-              <div class="px-2 pb-2" id="subs-langs" hidden><input id="o-langs" class="form-control" placeholder="Languages, e.g. en, hi, es" value="en" style="padding:8px 12px"></div>
-              <div class="opt" id="opt-sb"><div><div class="opt-t">Skip sponsors</div><div class="opt-d">Cut sponsor, self-promo and interaction reminders (SponsorBlock)</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-sb"></div></div>
-              <div class="opt" id="opt-num"><div><div class="opt-t">Number playlist tracks</div><div class="opt-d" id="opt-num-d">Files named “01 - Title”; off = just “Title”</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-num"></div></div>
-              <div class="opt local-only"><div><div class="opt-t">Overwrite existing</div><div class="opt-d">Re-download even if the file exists</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-over"></div></div>
-              <div class="px-2 py-2">
-                <div class="field-label">Playlist handling</div>
-                <div class="seg full" id="pl-seg">
-                  <button type="button" class="active" data-mode="auto">Auto</button>
-                  <button type="button" data-mode="single">Single video</button>
-                  <button type="button" data-mode="playlist">Whole playlist</button>
-                </div>
+          <!-- Collapsed download rail — expands on click (Link + Search + Mine share it) -->
+          <div class="composer-rail" id="composer-rail">
+            <button type="button" class="composer-rail-bar" id="composer-rail-toggle"
+              aria-expanded="false" aria-controls="composer-rail-panel"
+              title="Download options">
+              <span class="composer-rail-ico" aria-hidden="true"><i class="bi bi-sliders"></i></span>
+              <span class="composer-rail-body">
+                <span class="composer-rail-k">Download</span>
+                <span class="composer-rail-v" id="dl-defaults-summary">Audio MP3 · best · Video MP4 · best</span>
+              </span>
+              <span class="composer-rail-hint faint d-none d-sm-inline">tap to expand</span>
+              <i class="bi bi-chevron-down composer-rail-chev" aria-hidden="true"></i>
+            </button>
+            <div class="composer-rail-panel" id="composer-rail-panel" hidden>
+              <button type="button" class="dl-defaults" id="open-dl-defaults" title="Change format, quality and options">
+                <span class="dl-defaults-ico"><i class="bi bi-gear"></i></span>
+                <span class="dl-defaults-body">
+                  <span class="dl-defaults-k">Format &amp; quality</span>
+                  <span class="dl-defaults-v" id="dl-defaults-detail">Open Settings</span>
+                </span>
+                <span class="dl-defaults-go faint">Settings <i class="bi bi-chevron-right"></i></span>
+              </button>
+              <div class="flex gap-2 mt-2">
+                <button id="go-btn" class="btn-grad flex-1" type="button" disabled>
+                  <i class="bi bi-download"></i><span id="go-label">Download</span>
+                </button>
+                <button id="cart-add-btn" class="btn-ghost" type="button" disabled data-bs-toggle="tooltip" title="Add to the music cart"><i class="bi bi-cart-plus"></i><span class="d-none d-sm-inline">Cart</span></button>
               </div>
-              <div class="px-2 pb-2 grid grid-cols-2 gap-2">
-                <div><div class="field-label">Speed limit</div>
-                  <select id="o-speed" class="form-select" style="padding:8px 12px">
-                    <option value="">No limit</option><option value="262144">256 KB/s</option><option value="524288">512 KB/s</option>
-                    <option value="1048576">1 MB/s</option><option value="2097152">2 MB/s</option><option value="5242880">5 MB/s</option><option value="10485760">10 MB/s</option>
-                  </select></div>
-                <div class="local-only"><div class="field-label">Folder name</div><input id="o-folder" class="form-control" list="folder-list" placeholder="auto · e.g. Music/Rock" maxlength="120" autocomplete="off" style="padding:8px 12px" title="Created inside the downloads folder. Use / for sub-folders.">
-                  <datalist id="folder-list"></datalist></div>
-              </div>
+              <div id="go-sub" class="text-center faint mt-2" style="font-size:12px"></div>
             </div>
           </div>
-
-          <div class="flex gap-2">
-            <button id="go-btn" class="btn-grad flex-1" type="button" disabled>
-              <i class="bi bi-download"></i><span id="go-label">Download</span>
-            </button>
-            <button id="cart-add-btn" class="btn-ghost" type="button" disabled data-bs-toggle="tooltip" title="Add to the download cart"><i class="bi bi-bag-plus"></i><span class="d-none d-sm-inline">Cart</span></button>
-          </div>
-          <div id="go-sub" class="text-center faint mt-2" style="font-size:12px"></div>
         </div>
+
       </section>
 
-      <!-- ═════════ right column ═════════ -->
-      <div class="min-w-0">
-        <div class="tabs-top glass seg" id="tabs-top">
-          <button type="button" data-tab="queue" class="active"><i class="bi bi-lightning-charge-fill"></i>Downloads</button>
-          <button type="button" data-tab="library"><i class="bi bi-collection-play-fill"></i>Library</button>
-        </div>
-
-        <!-- queue -->
-        <section id="panel-queue" aria-label="Downloads">
+      <!-- queue -->
+        <section id="panel-queue" class="page-panel" aria-label="Downloads" hidden>
+          <div class="page-head mb-3">
+            <div>
+              <h2 id="page-head-download">Downloads</h2>
+              <div class="sub">Live queue — pause, retry, save finished jobs</div>
+            </div>
+            <a class="btn-ghost sm" href="/" data-page="home"><i class="bi bi-plus-lg"></i>New download</a>
+          </div>
           <div id="banner-host"></div>
 
           <div class="stats">
@@ -246,7 +291,14 @@
         </section>
 
         <!-- library -->
-        <section id="panel-library" aria-label="Library" hidden>
+        <section id="panel-library" class="page-panel" aria-label="Library" hidden>
+          <div class="page-head mb-3">
+            <div>
+              <h2 id="page-head-library">Library</h2>
+              <div class="sub">Browse, play and manage files</div>
+            </div>
+            <a class="btn-ghost sm" href="/download" data-page="download"><i class="bi bi-lightning-charge"></i>Queue</a>
+          </div>
           <div id="my-dl" class="glass card-pad mb-3 server-only" aria-label="My downloads">
             <div class="my-dl-head"><i class="bi bi-cloud-arrow-down-fill grad-text"></i><b>Your downloads</b>
               <span class="tag ok sm" id="my-dl-count" hidden></span>
@@ -293,16 +345,14 @@
           </div>
           </div><!-- /lib-host -->
         </section>
-      </div>
-      <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" aria-label="Resize columns" tabindex="0" title="Drag to resize · double-click to reset"></div>
-    </div>
+</div>
   </div>
 
   <!-- mobile bottom nav -->
-  <nav class="bottom-nav glass" id="bottom-nav" aria-label="Sections">
-    <button type="button" data-tab="new"><i class="bi bi-plus-circle-fill"></i>New</button>
-    <button type="button" data-tab="queue" class="active"><i class="bi bi-lightning-charge-fill"></i>Downloads<span class="badge-dot" id="nav-badge" hidden>0</span></button>
-    <button type="button" data-tab="library"><i class="bi bi-collection-play-fill"></i>Library</button>
+  <nav class="bottom-nav glass" id="bottom-nav" aria-label="Pages">
+    <a href="/" data-page="home" class="active"><i class="bi bi-house-door-fill"></i>Home</a>
+    <a href="/download" data-page="download"><i class="bi bi-lightning-charge-fill"></i>Downloads<span class="badge-dot" id="nav-badge" hidden>0</span></a>
+    <a href="/library" data-page="library"><i class="bi bi-collection-play-fill"></i>Library</a>
   </nav>
 
   <!-- settings modal -->
@@ -383,53 +433,7 @@
     </div>
   </div>
 
-  <div class="modal fade" id="settings-modal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content">
-        <div class="modal-header"><h5 class="modal-title"><i class="bi bi-sliders2 me-2 grad-text"></i>Settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
-        <div class="modal-body">
-          <div class="server-only mb-3">
-            <div class="field-label">Your YouTube cookies</div>
-            <div class="glass-in p-3 flex items-center gap-3" style="font-size:13px">
-              <div class="flex-grow-1" style="min-width:0"><div id="myck-status" class="fw-semibold"></div><div id="myck-detail" class="faint" style="font-size:12px"></div></div>
-              <button class="btn-ghost sm" id="myck-open" type="button"><i class="bi bi-pencil-square"></i>Edit</button>
-            </div>
-            <div class="faint mt-1" style="font-size:12px">Only if YouTube asks you to sign in. Used only for <b>your</b> downloads and playback, never shown to anyone, and deleted from the server after <span id="myck-hours">24</span> h (or when you remove them).</div>
-          </div>
-          <div class="admin-ctl">
-          <div class="field-label">Parallel downloads <b id="s-par-val" class="mono" style="color:var(--text)">3</b></div>
-          <input type="range" id="s-par" min="1" max="12" value="3">
-          <div class="faint mb-3" style="font-size:12px">Hard ceiling is the number of worker threads (<span id="s-workers">–</span>); this slider is the live limit below it.</div>
-          <div class="field-label mt-3">Speed cap per download</div>
-          <div class="flex gap-2">
-            <input id="s-speed" type="number" min="0" step="50" class="form-control" placeholder="0 = unlimited">
-            <select id="s-speed-unit" class="form-select" style="width:110px"><option value="1024">KB/s</option><option value="1048576">MB/s</option></select>
-          </div>
-          <div class="field-label mt-3 local-only">Default download folder</div>
-          <div class="flex gap-2 local-only">
-            <input id="s-folder" class="form-control" placeholder="Not set: date / playlist folders" autocomplete="off" spellcheck="false">
-            <button class="btn-ghost sm" id="s-folder-browse" type="button"><i class="bi bi-folder2-open"></i>Browse</button>
-          </div>
-          <div id="s-folder-pick" class="glass-in mt-2 p-1" hidden style="max-height:190px;overflow:auto;font-size:13px"></div>
-          <div class="faint mt-1 local-only" style="font-size:12px">Inside <span class="mono" id="s-root">downloads/</span>. New downloads go here unless you type a folder name in the composer. Type a new name to create one. The browser cannot open your computer's file explorer for a server folder; to move the root itself set <span class="mono">DL_DOWNLOADS_DIR</span> (Docker: the compose volume).</div>
-          <hr style="border-color:var(--stroke);opacity:1;margin:22px 0 16px">
-          <div class="field-label"><span><span class="server-only">Server </span>YouTube cookies</span></div>
-          <div class="glass-in p-3 flex items-center gap-3" style="font-size:13px">
-            <div class="flex-grow-1" style="min-width:0"><div id="ck-status" class="fw-semibold"></div><div id="ck-detail" class="faint" style="font-size:12px"></div></div>
-            <button class="btn-ghost sm" id="ck-open" type="button"><i class="bi bi-pencil-square"></i>Edit</button>
-          </div>
-          <div class="faint mt-1 mb-3" style="font-size:12px">Fixes “Sign in to confirm you’re not a bot”. Paste a Netscape <span class="mono">cookies.txt</span>.</div>
-          </div>
-          <div class="field-label">System</div>
-          <div id="sys-info" class="glass-in p-3" style="font-size:13px"></div>
-        </div>
-        <div class="modal-footer"><button class="btn-ghost" data-bs-dismiss="modal">Close</button><button class="btn-grad admin-ctl" id="s-save" style="padding:9px 18px"><i class="bi bi-check2"></i>Apply</button></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- download cart -->
-  <div class="modal fade" id="cart-modal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="cart-modal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
       <div class="modal-content">
         <div class="modal-header"><h5 class="modal-title"><i class="bi bi-bag-fill me-2 grad-text"></i>Download cart <span class="faint" id="cart-head-count" style="font-size:14px"></span></h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
@@ -440,11 +444,7 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div><div class="field-label">Name</div><input id="cart-name" class="form-control" maxlength="120" placeholder="Cart · date" autocomplete="off" style="padding:8px 12px"></div>
               <div>
-                <div class="field-label">Format</div>
-                <div class="seg mb-2" id="cart-kind-seg"><button type="button" data-ckind="audio" class="active">Audio</button><button type="button" data-ckind="video">Video</button></div>
-                <div class="chips mb-2" id="cart-format-chips"></div>
-                <div class="chips" id="cart-quality-chips"></div>
-                <div class="faint mt-1" style="font-size:12px">Checkout uses these settings · <b id="cart-format">MP3</b></div>
+                <div class="faint" style="font-size:12.5px">When you download, you’ll pick <b>Audio</b> or <b>Video</b> — your Settings defaults for that type are used. <span id="cart-format" class="mono"></span></div>
               </div>
             </div>
             <div class="opt mt-2 local-only" style="padding-left:2px"><div><div class="opt-t" style="font-size:13.5px">Download as one ZIP</div><div class="opt-d">Off: files go to <span class="mono" id="cart-folder-hint">downloads/&lt;name&gt;/</span></div></div><div class="form-check form-switch m-0"><input id="cart-zip" class="form-check-input" type="checkbox"></div></div>
@@ -460,8 +460,7 @@
     </div>
   </div>
 
-  <!-- confirm modal -->
-  <div class="modal fade" id="confirm-modal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="confirm-modal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-sm">
       <div class="modal-content">
         <div class="modal-body text-center p-4">
@@ -474,8 +473,7 @@
     </div>
   </div>
 
-  <!-- prompt modal (rename / move) -->
-  <div class="modal fade" id="prompt-modal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="prompt-modal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-sm">
       <form class="modal-content" id="prompt-form" autocomplete="off">
         <div class="modal-body p-4">
@@ -489,7 +487,212 @@
     </div>
   </div>
 
-  <!-- ═════════ player: floating video window + dock ═════════ -->
+<div class="modal fade" id="dl-kind-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title"><i class="bi bi-cloud-download me-2 grad-text"></i>Download as</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+        <div class="modal-body">
+          <p class="muted mb-3" style="font-size:13.5px" id="dl-kind-body">Choose audio or video — your saved defaults for that type will be used.</p>
+          <div class="dl-kind-grid">
+            <button type="button" class="dl-kind-btn" data-dl-kind="audio" id="dl-kind-audio">
+              <i class="bi bi-music-note-beamed"></i>
+              <b>Audio</b>
+              <span class="faint" id="dl-kind-audio-sum">MP3 · 192 kbps</span>
+            </button>
+            <button type="button" class="dl-kind-btn" data-dl-kind="video" id="dl-kind-video">
+              <i class="bi bi-film"></i>
+              <b>Video</b>
+              <span class="faint" id="dl-kind-video-sum">MP4 · 1080p</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<div class="modal fade" id="settings-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-sliders2 me-2 grad-text"></i>Settings</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body settings-body">
+          <div class="seg settings-tabs mb-3" id="settings-tabs" role="tablist">
+            <button type="button" class="active" data-stab="download" role="tab" aria-selected="true"><i class="bi bi-cloud-download"></i><span>Download</span></button>
+            <button type="button" data-stab="look" role="tab" aria-selected="false"><i class="bi bi-palette2"></i><span>Look</span></button>
+            <button type="button" data-stab="prefs" role="tab" aria-selected="false"><i class="bi bi-toggles2"></i><span>Prefs</span></button>
+            <button type="button" data-stab="account" role="tab" aria-selected="false"><i class="bi bi-person-lock"></i><span>Account</span></button>
+          </div>
+
+          <!-- ── Download ── -->
+          <div class="settings-pane" data-spane="download">
+            <div class="faint mb-2" style="font-size:12px">Audio and video defaults are saved in this browser. When you hit Download you’ll pick which type to use.</div>
+
+            <div id="dl-defaults" class="dl-defaults-grid">
+              <div class="glass-in p-3">
+                <div class="field-label mb-2"><i class="bi bi-music-note-beamed me-1"></i>Audio defaults</div>
+                <div id="audio-format-chips" class="chips mb-2"></div>
+                <div class="field-label mb-1">Bitrate <span id="audio-quality-note" class="faint" style="text-transform:none;letter-spacing:0;font-weight:500"></span></div>
+                <div id="audio-quality-chips" class="chips"></div>
+              </div>
+              <div class="glass-in p-3">
+                <div class="field-label mb-2"><i class="bi bi-film me-1"></i>Video defaults</div>
+                <div id="video-format-chips" class="chips mb-2"></div>
+                <div class="field-label mb-1">Resolution <span id="video-quality-note" class="faint" style="text-transform:none;letter-spacing:0;font-weight:500"></span></div>
+                <div id="video-quality-chips" class="chips"></div>
+              </div>
+            </div>
+
+            <div class="field-label mt-3">Shared options</div>
+            <div class="glass-in p-2">
+              <div class="opt" id="opt-thumb"><div><div class="opt-t">Embed cover art</div><div class="opt-d" id="opt-thumb-d">Thumbnail becomes the file's artwork (audio)</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-thumb"></div></div>
+              <div class="opt"><div><div class="opt-t">Embed tags</div><div class="opt-d">Title, artist, album, chapters</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-meta"></div></div>
+              <div class="opt" id="opt-subs"><div><div class="opt-t">Subtitles</div><div class="opt-d">Download and embed (video only)</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-subs"></div></div>
+              <div class="px-2 pb-2" id="subs-langs" hidden><input id="o-langs" class="form-control" placeholder="Languages, e.g. en, hi, es" value="en" style="padding:8px 12px"></div>
+              <div class="opt" id="opt-sb"><div><div class="opt-t">Skip sponsors</div><div class="opt-d">Cut sponsor, self-promo and interaction reminders (SponsorBlock)</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-sb"></div></div>
+              <div class="opt" id="opt-num"><div><div class="opt-t">Number playlist tracks</div><div class="opt-d" id="opt-num-d">Files named “01 - Title”; off = just “Title”</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-num"></div></div>
+              <div class="opt local-only"><div><div class="opt-t">Overwrite existing</div><div class="opt-d">Re-download even if the file exists</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-over"></div></div>
+              <div class="px-2 py-2">
+                <div class="field-label">Playlist handling</div>
+                <div class="seg full" id="pl-seg">
+                  <button type="button" class="active" data-mode="auto">Auto</button>
+                  <button type="button" data-mode="single">Single video</button>
+                  <button type="button" data-mode="playlist">Whole playlist</button>
+                </div>
+              </div>
+              <div class="px-2 pb-2 grid grid-cols-2 gap-2">
+                <div><div class="field-label">Speed limit</div>
+                  <select id="o-speed" class="form-select" style="padding:8px 12px">
+                    <option value="">No limit</option><option value="262144">256 KB/s</option><option value="524288">512 KB/s</option>
+                    <option value="1048576">1 MB/s</option><option value="2097152">2 MB/s</option><option value="5242880">5 MB/s</option><option value="10485760">10 MB/s</option>
+                  </select></div>
+                <div class="local-only"><div class="field-label">Folder name</div><input id="o-folder" class="form-control" list="folder-list" placeholder="auto · e.g. Music/Rock" maxlength="120" autocomplete="off" style="padding:8px 12px" title="Created inside the downloads folder. Use / for sub-folders.">
+                  <datalist id="folder-list"></datalist></div>
+              </div>
+            </div>
+
+            <div class="admin-ctl mt-3">
+              <div class="field-label">Parallel downloads <b id="s-par-val" class="mono" style="color:var(--text)">3</b></div>
+              <input type="range" id="s-par" min="1" max="12" value="3">
+              <div class="faint mb-3" style="font-size:12px">Hard ceiling is the number of worker threads (<span id="s-workers">–</span>); this slider is the live limit below it.</div>
+              <div class="field-label mt-3">Speed cap per download</div>
+              <div class="flex gap-2">
+                <input id="s-speed" type="number" min="0" step="50" class="form-control" placeholder="0 = unlimited">
+                <select id="s-speed-unit" class="form-select" style="width:110px"><option value="1024">KB/s</option><option value="1048576">MB/s</option></select>
+              </div>
+              <div class="field-label mt-3 local-only">Default download folder</div>
+              <div class="flex gap-2 local-only">
+                <input id="s-folder" class="form-control" placeholder="Not set: date / playlist folders" autocomplete="off" spellcheck="false">
+                <button class="btn-ghost sm" id="s-folder-browse" type="button"><i class="bi bi-folder2-open"></i>Browse</button>
+              </div>
+              <div id="s-folder-pick" class="glass-in mt-2 p-1" hidden style="max-height:190px;overflow:auto;font-size:13px"></div>
+              <div class="faint mt-1 local-only" style="font-size:12px">Inside <span class="mono" id="s-root">downloads/</span>. New downloads go here unless you type a folder name in the composer.</div>
+            </div>
+          </div>
+
+          <!-- ── Look ── -->
+          <div class="settings-pane" data-spane="look" hidden>
+            <div class="field-label">Accent colour</div>
+            <div class="theme-picker glass-in p-3">
+              <div class="flex items-center gap-3 mb-2">
+                <span id="theme-preview" class="theme-preview" aria-hidden="true"></span>
+                <div class="flex-grow-1" style="min-width:0">
+                  <div class="fw-semibold" style="font-size:13.5px">Theme colour <span class="mono faint" id="theme-hex">#6a58d6</span></div>
+                  <div class="faint" style="font-size:12px">Saved in this browser only — not on the server</div>
+                </div>
+                <button type="button" class="btn-ghost sm" id="theme-reset" title="Reset to default indigo"><i class="bi bi-arrow-counterclockwise"></i>Reset</button>
+              </div>
+              <div id="theme-swatches" class="theme-swatches" role="listbox" aria-label="Colour presets"></div>
+              <button type="button" class="btn-ghost sm w-100 mt-2" id="theme-more" aria-expanded="false"><i class="bi bi-palette2"></i>More — pick any shade</button>
+              <div id="theme-wheel-box" class="theme-wheel-box" hidden>
+                <canvas id="theme-wheel" width="220" height="220" aria-label="Colour wheel"></canvas>
+                <div class="theme-wheel-side">
+                  <label class="field-label mb-1">Brightness</label>
+                  <input type="range" id="theme-light" min="18" max="78" value="55" aria-label="Brightness">
+                  <input type="color" id="theme-color" value="#6a58d6" class="theme-color-native" aria-label="Exact colour" title="Exact colour">
+                  <div class="faint" style="font-size:12px">Drag the wheel, or use the native picker for an exact hex.</div>
+                </div>
+              </div>
+            </div>
+            <div class="field-label mt-3">Ambient</div>
+            <div class="glass-in p-3">
+              <div class="opt" style="padding-left:2px">
+                <div>
+                  <div class="opt-t">Music visual background</div>
+                  <div class="opt-d">Reactive aurora behind the page while the mini player is playing. Pauses with the music; off keeps the normal theme.</div>
+                </div>
+                <div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="pref-ambient"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Prefs ── -->
+          <div class="settings-pane" data-spane="prefs" hidden>
+            <div class="field-label">Your preferences <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">· this browser only</span></div>
+            <div id="ui-prefs" class="glass-in p-3">
+              <div class="opt" style="padding-left:2px"><div><div class="opt-t">Calmer animations</div><div class="opt-d">Less motion on cards, panels and the stage</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="pref-motion"></div></div>
+              <div class="opt" style="padding-left:2px"><div><div class="opt-t">Compact download list</div><div class="opt-d">Tighter job cards on the Downloads page</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="pref-compact"></div></div>
+              <div class="opt server-only" style="padding-left:2px"><div><div class="opt-t">Auto-save finished files</div><div class="opt-d">When a download finishes, start saving it to this device</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="pref-autosave"></div></div>
+              <div class="opt" style="padding-left:2px"><div><div class="opt-t">Confirm before deleting</div><div class="opt-d">Ask before removing jobs or library files</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="pref-confirm"></div></div>
+              <div class="opt" style="padding-left:2px"><div><div class="opt-t">Open Downloads after queueing</div><div class="opt-d">Jump to the queue when you start a download</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="pref-queue-jump"></div></div>
+              <div class="opt" style="padding-left:2px"><div><div class="opt-t">Prefer YouTube Music links</div><div class="opt-d">Default for top search and the Search tab</div></div>
+                <button type="button" class="music-tog" id="pref-omnibar-music" aria-pressed="false" title="Prefer YouTube Music links" aria-label="Prefer YouTube Music links"><i class="bi bi-music-note-beamed" aria-hidden="true"></i></button>
+              </div>
+              <div class="px-2 pt-2 pb-1">
+                <div class="field-label mb-1">Home shelf</div>
+                <select id="pref-explore" class="form-select" style="padding:8px 12px">
+                  <option value="auto">Auto (For you when signed in, else Music)</option>
+                  <option value="for_you">For you</option>
+                  <option value="music">Music</option>
+                  <option value="videos">Videos</option>
+                </select>
+              </div>
+              <div class="opt" style="padding-left:2px;align-items:flex-start">
+                <div>
+                  <div class="opt-t">Explore without cookies <span class="badge text-bg-warning" style="font-size:10px;vertical-align:middle">Beta</span></div>
+                  <div class="opt-d">Show Trending music / videos for anonymous visitors. Experimental — may fail, return empty results, or hit rate limits when YouTube blocks cookie-less searches.</div>
+                </div>
+                <div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="pref-explore-anon"></div>
+              </div>
+              <div class="px-2 pt-2 pb-1">
+                <div class="field-label mb-1">Results layout</div>
+                <select id="pref-results-layout" class="form-select" style="padding:8px 12px"></select>
+                <div class="opt-d mt-1">List, cards, posters, stack, cinema or mosaic</div>
+              </div>
+              <div class="opt" style="padding-left:2px;align-items:flex-start"><div><div class="opt-t">Lyrics language</div><div class="opt-d">Auto keeps the original; pick English (or another language) to translate when needed</div></div>
+                <select id="pref-lyrics-lang" class="form-select" style="padding:8px 12px;min-width:11rem"></select>
+              </div>
+              <div class="text-end mt-2"><button type="button" class="btn-ghost sm" id="pref-reset"><i class="bi bi-arrow-counterclockwise"></i>Reset preferences</button></div>
+            </div>
+          </div>
+
+          <!-- ── Account ── -->
+          <div class="settings-pane" data-spane="account" hidden>
+            <div class="server-only mb-3">
+              <div class="field-label">Your YouTube cookies</div>
+              <div class="glass-in p-3 flex items-center gap-3" style="font-size:13px">
+                <div class="flex-grow-1" style="min-width:0"><div id="myck-status" class="fw-semibold"></div><div id="myck-detail" class="faint" style="font-size:12px"></div></div>
+                <button class="btn-ghost sm" id="myck-open" type="button"><i class="bi bi-pencil-square"></i>Edit</button>
+              </div>
+              <div class="faint mt-1" style="font-size:12px">Only if YouTube asks you to sign in. Used only for <b>your</b> downloads and playback, never shown to anyone, and deleted from the server after <span id="myck-hours">24</span> h (or when you remove them).</div>
+            </div>
+            <div class="admin-ctl">
+              <div class="field-label"><span><span class="server-only">Server </span>YouTube cookies</span></div>
+              <div class="glass-in p-3 flex items-center gap-3" style="font-size:13px">
+                <div class="flex-grow-1" style="min-width:0"><div id="ck-status" class="fw-semibold"></div><div id="ck-detail" class="faint" style="font-size:12px"></div></div>
+                <button class="btn-ghost sm" id="ck-open" type="button"><i class="bi bi-pencil-square"></i>Edit</button>
+              </div>
+              <div class="faint mt-1 mb-3" style="font-size:12px">Fixes “Sign in to confirm you’re not a bot”. Paste a Netscape <span class="mono">cookies.txt</span>.</div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer"><button class="btn-ghost" data-bs-dismiss="modal">Close</button><button class="btn-grad admin-ctl" id="s-save" style="padding:9px 18px"><i class="bi bi-check2"></i>Apply</button></div>
+      </div>
+    </div>
+  </div>
+
+<!-- ═════════ player: floating video window + dock ═════════ -->
   <audio id="mp-a" preload="auto"></audio>
 
   <div id="vwin" class="vwin" hidden role="dialog" aria-label="Video window">
@@ -551,6 +754,7 @@
         <div class="dropup"><button class="mp-chipbtn" id="mp-rate" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Playback speed">1×</button><ul class="dropdown-menu dropdown-menu-end" id="mp-rate-menu"></ul></div>
         <div class="dropup"><button class="mp-btn" id="mp-sleep" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Sleep timer" title="Sleep timer"><i class="bi bi-moon-stars"></i></button><ul class="dropdown-menu dropdown-menu-end" id="mp-sleep-menu"></ul></div>
         <div class="mp-vol"><button class="mp-btn" id="mp-mute" type="button" aria-label="Mute" title="Mute (M)"><i class="bi bi-volume-up-fill"></i></button><input type="range" id="mp-vol" class="mp-range" min="0" max="1" step="0.01" value="0.8" aria-label="Volume"></div>
+        <button class="mp-btn" id="mp-eq-btn" type="button" aria-label="Equalizer" title="Equalizer" aria-expanded="false"><i class="bi bi-sliders"></i></button>
         <button class="mp-btn" id="mp-lyrics" type="button" aria-label="Lyrics" title="Lyrics (Y)"><i class="bi bi-quote"></i></button>
         <button class="mp-btn" id="mp-stage" type="button" aria-label="Player mode" title="Player mode (V)"><i class="bi bi-stars"></i></button>
         <button class="mp-btn" id="mp-window" type="button" aria-label="Video window" title="Show / hide video window (T)"><i class="bi bi-window-stack"></i></button>
@@ -559,6 +763,33 @@
         <button class="mp-btn" id="mp-close" type="button" aria-label="Close player" title="Close"><i class="bi bi-x-lg"></i></button>
       </div>
     </div>
+
+    <div class="eq-panel" id="eq-panel" hidden>
+      <div class="eq-panel-head">
+        <div class="flex items-center gap-2">
+          <i class="bi bi-sliders" aria-hidden="true"></i>
+          <b>Equalizer</b>
+          <div class="form-check form-switch m-0 ms-2">
+            <input class="form-check-input" type="checkbox" id="eq-enable" aria-label="Enable equalizer">
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button type="button" class="btn-ghost sm" id="eq-reset" title="Reset to flat"><i class="bi bi-arrow-counterclockwise"></i>Flat</button>
+          <button type="button" class="mp-btn" id="eq-close" aria-label="Close equalizer"><i class="bi bi-x-lg"></i></button>
+        </div>
+      </div>
+      <div class="eq-presets" id="eq-presets" role="listbox" aria-label="EQ presets"></div>
+      <div class="eq-quick">
+        <label class="eq-knob"><span>Preamp <b id="eq-preamp-val">0 dB</b></span><input type="range" id="eq-preamp" min="-12" max="12" step="1" value="0"></label>
+        <label class="eq-knob"><span>Bass <b id="eq-bass-val">0</b></span><input type="range" id="eq-bass" min="-12" max="12" step="1" value="0"></label>
+        <label class="eq-knob"><span>Mids <b id="eq-mid-val">0</b></span><input type="range" id="eq-mid" min="-12" max="12" step="1" value="0"></label>
+        <label class="eq-knob"><span>Treble <b id="eq-treble-val">0</b></span><input type="range" id="eq-treble" min="-12" max="12" step="1" value="0"></label>
+        <label class="eq-knob"><span>Surround <b id="eq-surround-val">0%</b></span><input type="range" id="eq-surround" min="0" max="100" step="1" value="0"></label>
+      </div>
+      <div class="eq-bands" id="eq-bands" aria-label="Graphic equalizer"></div>
+      <div class="eq-hint faint">Saved in this browser · works on the mini player (Web Audio). Open Player mode for visuals.</div>
+    </div>
+
     <div class="mp-queue" id="mp-queue" hidden>
       <div class="mp-queue-head"><b>Up next</b><span class="faint" id="mp-queue-hint">drag to reorder</span>
         <span class="flex-grow-1"></span>
@@ -585,16 +816,32 @@
             <li><button class="dropdown-item" data-scene="bars"><i class="bi bi-bar-chart-fill"></i>Bars</button></li>
             <li><button class="dropdown-item" data-scene="ripple"><i class="bi bi-broadcast"></i>Ripple</button></li>
             <li><button class="dropdown-item" data-scene="constellation"><i class="bi bi-stars"></i>Constellation</button></li>
+            <li><button class="dropdown-item" data-scene="spiral"><i class="bi bi-tropical-storm"></i>Spiral</button></li>
+            <li><button class="dropdown-item" data-scene="tunnel"><i class="bi bi-circle"></i>Tunnel</button></li>
+            <li><button class="dropdown-item" data-scene="waves"><i class="bi bi-water"></i>Waves</button></li>
+            <li><button class="dropdown-item" data-scene="rain"><i class="bi bi-cloud-rain"></i>Rain</button></li>
+            <li><button class="dropdown-item" data-scene="kaleido"><i class="bi bi-hexagon"></i>Kaleido</button></li>
+            <li><button class="dropdown-item" data-scene="bloom"><i class="bi bi-flower1"></i>Bloom</button></li>
             <li><hr class="dropdown-divider"></li>
             <li><button class="dropdown-item" data-scene="random"><i class="bi bi-shuffle"></i>Random each track</button></li>
           </ul>
         </div>
+        <button type="button" class="stage-chip" id="st-art-shape" aria-pressed="true" title="Cover shape: circle / square"><i class="bi bi-circle" id="st-art-shape-ico"></i><span class="d-none d-sm-inline" id="st-art-shape-label">Circle</span></button>
+        <button type="button" class="stage-chip" id="st-video-btn" aria-pressed="false" title="Show video (P)"><i class="bi bi-film"></i><span class="d-none d-sm-inline">Video</span></button>
         <button type="button" class="stage-chip" id="st-lyrics-btn" aria-pressed="false" title="Lyrics (Y)"><i class="bi bi-quote"></i><span class="d-none d-sm-inline">Lyrics</span></button>
         <button type="button" class="stage-chip icon" id="st-close" aria-label="Close player mode" title="Close (Esc)"><i class="bi bi-chevron-down"></i></button>
       </div>
     </header>
     <main class="stage-main">
       <section class="stage-visual" aria-hidden="true">
+        <div class="stage-video" id="st-video" hidden>
+          <div class="stage-video-frame" id="st-video-frame">
+            <div class="stage-video-empty" id="st-video-empty" hidden>
+              <i class="bi bi-music-note-beamed"></i>
+              <span>Audio only — no picture for this track</span>
+            </div>
+          </div>
+        </div>
         <div class="turntable">
           <div class="platter"><div class="record"><img class="record-label" id="st-label" alt=""><span class="spindle"></span></div></div>
           <div class="tonearm"><span class="arm-base"></span><span class="arm"></span><span class="arm-head"></span></div>
@@ -617,6 +864,20 @@
         <button type="button" class="st-play" id="st-play" aria-label="Play"><i class="bi bi-play-fill"></i></button>
         <button type="button" class="st-btn" id="st-next" aria-label="Next"><i class="bi bi-skip-forward-fill"></i></button>
         <button type="button" class="st-btn" id="st-repeat" aria-label="Repeat"><i class="bi bi-repeat"></i></button>
+      </div>
+      <div class="stage-tools">
+        <span class="stage-pill" id="st-sleep-pill" hidden><i class="bi bi-moon-stars"></i><span id="st-sleep-left"></span></span>
+        <div class="dropup">
+          <button type="button" class="st-btn sm" id="st-rate" data-bs-toggle="dropdown" aria-expanded="false" title="Playback speed">1×</button>
+          <ul class="dropdown-menu dropdown-menu-end" id="st-rate-menu"></ul>
+        </div>
+        <div class="dropup">
+          <button type="button" class="st-btn sm" id="st-sleep" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Sleep timer" title="Sleep timer"><i class="bi bi-moon-stars"></i></button>
+          <ul class="dropdown-menu dropdown-menu-end" id="st-sleep-menu"></ul>
+        </div>
+        <button type="button" class="st-btn sm" id="st-eq-btn" aria-label="Equalizer" title="Equalizer" aria-expanded="false"><i class="bi bi-sliders"></i></button>
+        <button type="button" class="st-btn sm" id="st-download" aria-label="Download this" title="Download this track" hidden><i class="bi bi-download"></i></button>
+        <button type="button" class="st-btn sm" id="st-queue-btn" aria-label="Queue" title="Queue"><i class="bi bi-list-ul"></i><span class="st-count" id="st-queue-count">0</span></button>
       </div>
     </footer>
   </div>

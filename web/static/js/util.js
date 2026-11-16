@@ -173,3 +173,20 @@ export function cookieChipState(c, now = Date.now()) {
     title: warn || `Signed in — login expires ${when}`,
   };
 }
+
+/** Compact 1…N pager (max 10). Returns "" when only one page. */
+export function pagerHTML({ page = 1, pages = 1 } = {}) {
+  const p = Math.max(1, Number(page) || 1);
+  const n = Math.max(1, Math.min(10, Number(pages) || 1));
+  if (n <= 1) return "";
+  const btns = [];
+  for (let i = 1; i <= n; i++) {
+    btns.push(`<button type="button" class="pager-num${i === p ? " active" : ""}" data-page="${i}">${i}</button>`);
+  }
+  return `<nav class="results-pager" aria-label="Result pages">
+    <button type="button" class="pager-nav" data-page="${p - 1}" ${p <= 1 ? "disabled" : ""} aria-label="Previous page"><i class="bi bi-chevron-left"></i></button>
+    <div class="pager-nums">${btns.join("")}</div>
+    <button type="button" class="pager-nav" data-page="${p + 1}" ${p >= n ? "disabled" : ""} aria-label="Next page"><i class="bi bi-chevron-right"></i></button>
+  </nav>`;
+}
+

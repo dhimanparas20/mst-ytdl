@@ -13,6 +13,7 @@ from services.cookies import CookieService, cookie_service
 from services.delivery import DeliveryService, delivery_service
 from services.dispatch import Dispatcher, get_dispatcher, set_dispatcher
 from services.downloader import DownloadRunner, download_runner
+from services.explore import ExploreService, explore_service
 from services.errors import (
     ConflictError,
     ForbiddenError,
@@ -58,6 +59,8 @@ __all__ = [
     "access_service",
     "cache_service",
     "delivery_service",
+    "ExploreService",
+    "explore_service",
     "CookieService",
     "cookie_service",
     "ConflictError",

@@ -444,7 +444,7 @@ class TestSubtitles:
         monkeypatch.setattr(svc, "_extract", lambda vid: raw)
         got = []
 
-        def fake_get(url, timeout=20):
+        def fake_get(url, timeout=20, **_kw):
             got.append(url)
             return FakeResp(200, {}, VTT.encode())
 
@@ -465,9 +465,17 @@ class TestSubtitles:
         with pytest.raises(InvalidRequestError, match="No WebVTT"):
             svc.subtitle_vtt(VID, "xx")
 
-    def test_non_vtt_response_is_an_upstream_error(self, subs, monkeypatch):
+    def test_non_vtt_response_is_not_found(self, subs, monkeypatch):
         monkeypatch.setattr(st.requests, "get", lambda *a, **k: FakeResp(200, {}, b"<html>captcha</html>"))
-        with pytest.raises(UpstreamError):
+        with pytest.raises(NotFoundError):
+            svc.subtitle_vtt(VID, "en")
+
+    def test_rate_limited_timedtext(self, subs, monkeypatch):
+        from services.errors import RateLimitedError
+
+        monkeypatch.setattr(st.requests, "get", lambda *a, **k: FakeResp(429, {}, b"rate"))
+        monkeypatch.setattr(st.time, "sleep", lambda *_: None)
+        with pytest.raises(RateLimitedError):
             svc.subtitle_vtt(VID, "en")
 
     def test_foreign_host_refused(self, monkeypatch):

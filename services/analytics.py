@@ -189,5 +189,40 @@ class AnalyticsService:
             r.delete(*keys)
         return len(keys)
 
+    def suggest_queries(self, prefix: str = "", limit: int = 8, days: int = 3) -> list[str]:
+        """
+        Popular search strings for the omnibar (merged across recent days).
+
+        Args:
+            prefix: optional filter (case-insensitive substring).
+            limit: max suggestions to return (1–20).
+            days: how many day-buckets of ``TOPQ`` to merge.
+
+        Returns:
+            Query strings, most popular first. Empty when Redis has nothing yet.
+        """
+        n = max(1, min(int(limit), 20))
+        needle = (prefix or "").strip().lower()
+        try:
+            r = get_redis()
+            now = _now()
+            scores: dict[str, float] = {}
+            for i in range(max(1, min(int(days), 14))):
+                day = now - timedelta(days=i)
+                for q, c in r.zrevrange(f"{self._p}:TOPQ:{day:%Y%m%d}", 0, 49, withscores=True):
+                    scores[q] = scores.get(q, 0.0) + float(c) / (i + 1)  # fresher days weigh more
+            ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+            out: list[str] = []
+            for q, _ in ranked:
+                if needle and needle not in q:
+                    continue
+                out.append(q)
+                if len(out) >= n:
+                    break
+            return out
+        except Exception:
+            logger.debug("suggest_queries failed", exc_info=True)
+            return []
+
 
 analytics = AnalyticsService()

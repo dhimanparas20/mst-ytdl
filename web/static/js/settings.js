@@ -1,8 +1,10 @@
-// Settings modal (runtime limits + system info) and the header health pill.
+// Settings modal (runtime limits for admins + browser-local user prefs). No system/infra dump here.
 
 import { api } from "./api.js";
+import { paintUiPrefsForm } from "./prefs.js";
+import { paintCookieStatus, paintHealthStatus } from "./status.js";
 import { toast, withBusy } from "./ui.js";
-import { $, cookieChipState, esc, setText } from "./util.js";
+import { $, $$, cookieChipState, esc, setText } from "./util.js";
 import { showRuntime } from "./queue.js";
 
 let cfg = null;
@@ -11,29 +13,6 @@ const CK = {
   server: { get: () => api.cookies(), save: (t) => api.saveCookies(t), clear: () => api.clearCookies(), test: () => api.testCookies() },
   mine: { get: () => api.myCookies(), save: (t) => api.saveMyCookies(t), clear: () => api.clearMyCookies(), test: () => api.testMyCookies() },
 };
-
-function shortPath(p, n = 46) {
-  if (!p) return "—";
-  return p.length > n ? "…" + p.slice(-(n - 1)) : p;
-}
-
-const row = (k, v, ok) =>
-  `<div class="flex justify-between gap-3 py-1" style="border-bottom:1px solid var(--stroke)"><span class="muted">${k}</span><span class="mono text-end" style="word-break:break-all">${ok === undefined ? "" : `<i class="bi bi-${ok ? "check-circle-fill" : "x-circle-fill"}" style="color:var(--${ok ? "ok" : "bad"})"></i> `}${v}</span></div>`;
-
-async function fillSystem() {
-  const [h, c] = await Promise.all([api.health(), cfg ? Promise.resolve(cfg) : api.config()]);
-  cfg = c;
-  $("#sys-info").innerHTML = [
-    row("Redis", h.redis ? "connected" : "unreachable", h.redis),
-    row("Worker", h.worker ? "running" : "not seen", h.worker),
-    row("ffmpeg", h.ffmpeg ? esc(shortPath(h.ffmpeg, 38)) : "missing", !!h.ffmpeg),
-    row("JS runtime", h.js_runtime ? esc(h.js_runtime) : "none", !!h.js_runtime),
-    row("yt-dlp", esc(h.yt_dlp)),
-    row("Downloads", esc(shortPath(h.downloads_dir))),
-    row("Timezone", esc(c.timezone)),
-    row("Worker threads", String(c.workers)),
-  ].join("");
-}
 
 // ── YouTube cookies ──
 const when = (iso) => (iso ? new Date(iso).toLocaleString() : "");
@@ -63,23 +42,14 @@ function paintCookies(c, target = ckTarget) {
   $("#ck-clear").hidden = c.source !== "file";
 }
 
-/** Topbar chip: "Cookies · signed in / none / expiring". Server mode shows the visitor's own cookies, never the server's. */
+/** Status menu cookies row: server mode = visitor cookies; personal = server cookies. */
 async function refreshCookieChip() {
-  const chip = $("#cookie-chip");
-  if (!chip) return;
   let state = null;
   try {
     cfg = cfg || await api.config();
     state = cookieChipState(await CK[cfg.server_mode ? "mine" : "server"].get());
-  } catch { /* status unavailable → hide the chip */ }
-  chip.hidden = !state;
-  if (!state) return;
-  chip.className = `tag cookie-chip ${state.tone}`;
-  setText($("#cookie-chip-text"), state.text);
-  chip.setAttribute("aria-label", state.text);
-  chip.setAttribute("data-bs-original-title", state.title);
-  chip.setAttribute("title", state.title);
-  bootstrap.Tooltip.getInstance(chip)?.setContent({ ".tooltip-inner": state.title });
+  } catch { /* status unavailable → hide the row */ }
+  paintCookieStatus(state);
 }
 
 async function loadCookies(target = ckTarget) {
@@ -139,7 +109,7 @@ async function toggleFolderPicker() {
   box.hidden = false;
 }
 
-async function openSettings() {
+async function openSettings({ focus } = {}) {
   const modal = bootstrap.Modal.getOrCreateInstance($("#settings-modal"));
   modal.show();
   try {
@@ -160,8 +130,23 @@ async function openSettings() {
     } else { $("#s-speed").value = ""; }
     $("#myck-hours").textContent = String(c.visitor_cookie_hours || 24);
     const isServer = document.body.classList.contains("server-mode");
-    await Promise.all([fillSystem(), loadCookies(isServer ? "mine" : "server")]);
+    paintUiPrefsForm();
+    await loadCookies(isServer ? "mine" : "server");
   } catch (e) { toast(e.detail || e.message, "err"); }
+  const tab = focus === "dl-defaults" || focus === "download" ? "download"
+    : focus === "look" || focus === "theme" ? "look"
+    : focus === "prefs" ? "prefs"
+    : focus === "account" || focus === "cookies" ? "account"
+    : "download";
+  showSettingsTab(tab);
+  if (focus === "dl-defaults") {
+    requestAnimationFrame(() => {
+      const el = $("#dl-defaults");
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      el?.classList.add("pulse-once");
+      setTimeout(() => el?.classList.remove("pulse-once"), 1200);
+    });
+  }
 }
 
 async function save(btn) {
@@ -177,49 +162,54 @@ async function save(btn) {
   } catch (e) { toast(e.detail || e.message, "err"); }
 }
 
+function showSettingsTab(name) {
+  const tab = name || "download";
+  $$("#settings-tabs [data-stab]").forEach((b) => {
+    const on = b.dataset.stab === tab;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", String(on));
+  });
+  $$(".settings-pane").forEach((p) => { p.hidden = p.dataset.spane !== tab; });
+}
+
 export function initSettings() {
-  $("#open-settings").addEventListener("click", openSettings);
-  $("#health-pill").addEventListener("click", openSettings);
-  $("#s-par").addEventListener("input", (e) => setText($("#s-par-val"), e.target.value));
-  $("#s-save").addEventListener("click", (e) => save(e.currentTarget));
-  $("#s-folder-browse").addEventListener("click", toggleFolderPicker);
-  $("#s-folder-pick").addEventListener("click", (e) => {
+  $("#open-settings").addEventListener("click", () => openSettings());
+  window.addEventListener("open-settings", (e) => openSettings(e.detail || {}));
+  $("#settings-tabs")?.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-stab]");
+    if (b) showSettingsTab(b.dataset.stab);
+  });
+  $("#s-par")?.addEventListener("input", (e) => setText($("#s-par-val"), e.target.value));
+  $("#s-save")?.addEventListener("click", (e) => save(e.currentTarget));
+  $("#s-folder-browse")?.addEventListener("click", toggleFolderPicker);
+  $("#s-folder-pick")?.addEventListener("click", (e) => {
     const b = e.target.closest("[data-f]");
     if (b) { $("#s-folder").value = b.dataset.f; $("#s-folder-pick").hidden = true; }
   });
-  $("#ck-open").addEventListener("click", () => openCookies("server"));
-  $("#myck-open").addEventListener("click", () => openCookies("mine"));
-  // the config may not be loaded yet (it is fetched when the settings dialog first opens): the target depends on it
+  $("#ck-open")?.addEventListener("click", () => openCookies("server"));
+  $("#myck-open")?.addEventListener("click", () => openCookies("mine"));
   window.addEventListener("cookies-changed", () => { loadCookies(); refreshCookieChip(); });
-  $("#cookie-chip")?.addEventListener("click", () => window.dispatchEvent(new CustomEvent("open-cookies")));
   refreshCookieChip();  // loads the config (mode) first, so it also primes `cfg` for the dialog
   window.addEventListener("open-cookies", async () => {
     try { cfg = cfg || await api.config(); } catch { /* fall back to the personal-mode editor */ }
     openCookies(cfg?.server_mode ? "mine" : "server");
   });
-  $("#ck-save").addEventListener("click", (e) => saveCookies(e.currentTarget));
-  $("#ck-clear").addEventListener("click", (e) => clearCookies(e.currentTarget));
-  $("#ck-test").addEventListener("click", (e) => testCookies(e.currentTarget));
+  $("#ck-save")?.addEventListener("click", (e) => saveCookies(e.currentTarget));
+  $("#ck-clear")?.addEventListener("click", (e) => clearCookies(e.currentTarget));
+  $("#ck-test")?.addEventListener("click", (e) => testCookies(e.currentTarget));
 }
 
-/** Update the header pill + the "no worker" banner. */
+/** Update the status-menu health row + operator banners (personal mode only — visitors never see infra tips). */
 export function renderHealth(h) {
-  const pill = $("#health-pill");
-  let cls = "ok", text = "All systems go";
-  if (!h) { cls = "bad"; text = "Server offline"; }
-  else if (!h.redis) { cls = "bad"; text = "Redis down"; }
-  else if (!h.worker) { cls = "warn"; text = "No worker"; }
-  else if (!h.ffmpeg) { cls = "warn"; text = "ffmpeg missing"; }
-  else if (!h.js_runtime) { cls = "warn"; text = "No JS runtime"; }
-  pill.className = `health ${cls}`;
-  pill.querySelector(".h-text").textContent = text;
-  const tip = h ? (h.detail.length ? h.detail.join(" • ") : `yt-dlp ${h.yt_dlp} · ffmpeg ✓ · worker ✓ · ${h.js_runtime || "no JS"}`) : "Cannot reach the API";
-  pill.setAttribute("data-bs-original-title", tip);
-  pill.setAttribute("title", tip);
-  const inst = bootstrap.Tooltip.getInstance(pill);
-  if (inst) inst.setContent({ ".tooltip-inner": tip });
+  paintHealthStatus(h);
 
   const host = $("#banner-host");
+  if (!host) return;
+  // server-mode visitors: soft status only; docker/ffmpeg tips stay on /admin
+  if (document.body.classList.contains("server-mode")) {
+    host.innerHTML = "";
+    return;
+  }
   const msgs = [];
   if (h && !h.redis) msgs.push(`Redis is not reachable. Start it: <code>docker compose up -d redis</code>`);
   else if (h && !h.worker) msgs.push(`No download worker is running, so jobs will wait in the queue. Start one: <code>uv run python main.py worker</code>`);

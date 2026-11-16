@@ -137,12 +137,27 @@ def create_app() -> FastAPI:
         """The admin dashboard (its API is under /api/admin)."""
         return FileResponse(WEB_DIR / "admin.html", headers={"Cache-Control": "no-cache", "X-Robots-Tag": "noindex"})
 
-    @app.get("/", include_in_schema=False)
-    def index():
+    def _spa() -> FileResponse | JSONResponse:
+        """Same shell for Home / Downloads / Library — the client router swaps panels."""
         page = WEB_DIR / "index.html"
         if not page.is_file():
             return JSONResponse({"detail": "UI not built yet — API docs at /docs"}, status_code=200)
         return FileResponse(page, headers={"Cache-Control": "no-cache"})
+
+    @app.get("/", include_in_schema=False)
+    def index():
+        return _spa()
+
+    @app.get("/download", include_in_schema=False)
+    @app.get("/downloads", include_in_schema=False)
+    def download_page():
+        """Downloads dashboard (live queue). ``/downloads`` is an alias."""
+        return _spa()
+
+    @app.get("/library", include_in_schema=False)
+    def library_page():
+        """Library browser (browse / play / zip)."""
+        return _spa()
 
     return app
 

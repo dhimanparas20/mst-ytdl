@@ -182,14 +182,30 @@ class TestSearchApi:
             {"id": "a" * 11, "title": "One", "channel": "C", "duration": 10}]})
         r = client.get("/api/search", params={"q": "lofi", "limit": 3})
         assert r.status_code == 200
-        (e,) = r.json()
+        body = r.json()
+        assert body["page"] == 1 and body["pages"] == 1 and body["page_size"] == 3
+        (e,) = body["entries"]
         assert e["title"] == "One" and e["uploader"] == "C" and e["url"].endswith("a" * 11)
 
     def test_music_param(self, client, monkeypatch):
         monkeypatch.setattr(metadata_service, "_extract", lambda url, flat: {"entries": [{"id": "a" * 11, "title": "One"}]})
-        assert client.get("/api/search", params={"q": "lofi", "music": "true"}).json()[0]["url"].startswith("https://music.")
+        assert client.get("/api/search", params={"q": "lofi", "music": "true"}).json()["entries"][0]["url"].startswith("https://music.")
 
-    @pytest.mark.parametrize("params", [{}, {"q": "a"}, {"q": "x" * 201}, {"q": "ok", "limit": 0}, {"q": "ok", "limit": 26}])
+    def test_pagination_window(self, client, monkeypatch):
+        def fake(url, flat):
+            # ytsearchN:q — honour N
+            n = int(url.split(":", 1)[0].removeprefix("ytsearch") or "10")
+            return {"entries": [{"id": f"{i:011d}"[:11], "title": f"T{i}"} for i in range(n)]}
+
+        monkeypatch.setattr(metadata_service, "_extract", fake)
+        from services.cache import cache_service
+        cache_service.clear_json()
+        p1 = client.get("/api/search", params={"q": "lofi", "limit": 5, "page": 1}).json()
+        assert p1["page"] == 1 and len(p1["entries"]) == 5 and p1["pages"] >= 2
+        p2 = client.get("/api/search", params={"q": "lofi", "limit": 5, "page": 2}).json()
+        assert p2["page"] == 2 and p2["entries"][0]["title"] != p1["entries"][0]["title"]
+
+    @pytest.mark.parametrize("params", [{}, {"q": "a"}, {"q": "x" * 201}, {"q": "ok", "limit": 0}, {"q": "ok", "limit": 26}, {"q": "ok", "page": 0}, {"q": "ok", "page": 11}])
     def test_validation(self, client, params):
         assert client.get("/api/search", params=params).status_code == 422
 
@@ -200,6 +216,30 @@ class TestSearchApi:
         monkeypatch.setattr(metadata_service, "_extract", boom)
         assert client.get("/api/search", params={"q": "lofi"}).status_code == 422
 
+    def test_suggest_empty_and_filtered(self, client, monkeypatch):
+        from services import analytics
+
+        monkeypatch.setattr(analytics, "suggest_queries", lambda prefix="", limit=8, days=3: (
+            [q for q in ["lofi beats", "love songs", "punjabi"] if not prefix or prefix.lower() in q][:limit]
+        ))
+        assert client.get("/api/search/suggest").json() == ["lofi beats", "love songs", "punjabi"]
+        assert client.get("/api/search/suggest", params={"q": "lofi"}).json() == ["lofi beats"]
+        assert client.get("/api/search/suggest", params={"limit": 0}).status_code == 422
+
+
+
+
+class TestSpaPages:
+    """Home / Downloads / Library all serve the same index shell."""
+
+    def test_spa_shell_routes(self, client):
+        for path in ("/", "/download", "/downloads", "/library"):
+            r = client.get(path)
+            assert r.status_code == 200
+            assert "text/html" in r.headers.get("content-type", "")
+            assert b'id="panel-new"' in r.content
+            assert b'id="panel-queue"' in r.content
+            assert b'id="panel-library"' in r.content
 
 # ───────────────────────── downloads ─────────────────────────
 

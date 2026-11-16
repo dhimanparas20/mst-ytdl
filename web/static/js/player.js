@@ -269,7 +269,12 @@ function setSubtitle(sel, { remember = true } = {}) {
     tr.kind = "subtitles"; tr.label = sel.label; tr.srclang = String(sel.lang || "und").slice(0, 8);
     tr.src = sel.kind === "yt" ? api.streamSubsUrl(t.id, sel.lang, sel.auto) : api.libSubtitleUrl(t.path, sel.id);
     tr.default = true;
-    tr.addEventListener("error", () => { toast("Those subtitles could not be loaded.", "warn"); S.subSel = null; renderMenus(); });
+    tr.addEventListener("error", () => {
+      // Auto-load often 429s without cookies; only toast when the user picked a track.
+      if (remember) toast("Those subtitles could not be loaded.", "warn");
+      S.subSel = null;
+      renderMenus();
+    });
     V.appendChild(tr);
     requestAnimationFrame(() => { for (const x of V.textTracks) x.mode = x.label === sel.label ? "showing" : "disabled"; });
   }
@@ -440,6 +445,8 @@ function renderTrack(animate = false) {
   amb.style.backgroundImage = t.thumb ? `url("${t.thumb}")` : "none";
   amb.classList.toggle("on", !!t.thumb);
   $("#mp-download").hidden = t.kind !== "yt";
+  const stDl = $("#st-download");
+  if (stDl) stDl.hidden = t.kind !== "yt";
   const tag = $("#mp-source");
   tag.hidden = false;
   tag.textContent = t.kind === "yt" ? "YouTube" : t.video ? "video" : "local";
@@ -464,7 +471,10 @@ function renderControls() {
   $("#mp-mute i").className = `bi bi-volume-${S.muted || v === 0 ? "mute" : v < 0.4 ? "down" : "up"}-fill`;
   $("#mp-rate").textContent = `${S.rate}×`;
   $("#vw-rate-text").textContent = `${S.rate}×`;
+  const stRateBtn = $("#st-rate");
+  if (stRateBtn) stRateBtn.textContent = `${S.rate}×`;
   $("#mp-queue-btn").classList.toggle("on", S.queueOpen);
+  $("#st-queue-btn")?.classList.toggle("on", S.queueOpen);
   $("#mp-window").classList.toggle("on", windowVisible());
 }
 
@@ -495,11 +505,15 @@ function renderTime(sec = now()) {
 }
 
 function renderSleep() {
-  const pill = $("#mp-sleep-pill");
   const rem = sleepRemaining(S.sleep);
-  pill.hidden = !S.sleep;
-  if (S.sleep) $("#mp-sleep-left").textContent = S.sleep.mode === "track" ? "end of track" : fmtClock(rem);
-  $("#mp-sleep").classList.toggle("on", !!S.sleep);
+  const label = S.sleep?.mode === "track" ? "end of track" : (rem != null ? fmtClock(rem) : "");
+  for (const id of ["mp", "st"]) {
+    const pill = $(`#${id}-sleep-pill`);
+    if (pill) pill.hidden = !S.sleep;
+    const left = $(`#${id}-sleep-left`);
+    if (left && S.sleep) left.textContent = label;
+    $(`#${id}-sleep`)?.classList.toggle("on", !!S.sleep);
+  }
 }
 
 const item = (attrs, label, { active = false, extra = "" } = {}) =>
@@ -507,10 +521,12 @@ const item = (attrs, label, { active = false, extra = "" } = {}) =>
 
 function renderMenus() {
   const t = current();
-  // speed (dock + window)
+  // speed (dock + window + stage)
   const rates = RATES.map((r) => item(`data-rate="${r}"`, r === 1 ? "1× normal" : `${r}×`, { active: r === S.rate })).join("");
   $("#mp-rate-menu").innerHTML = rates;
   $("#vw-rate-menu").innerHTML = rates;
+  const stRate = $("#st-rate-menu");
+  if (stRate) stRate.innerHTML = rates;
 
   // quality (YouTube only)
   const qBtn = $("#vw-quality");
@@ -548,16 +564,22 @@ function renderMenus() {
   $("#vwin").classList.remove("sub-s", "sub-m", "sub-l");
   $("#vwin").classList.add(`sub-${S.subSize}`);
 
-  // sleep timer
-  $("#mp-sleep-menu").innerHTML =
+  // sleep timer (dock + stage)
+  const sleepHtml =
     `<li><h6 class="dropdown-header">Sleep timer</h6></li>` +
     SLEEP_OPTIONS.map((m) => item(`data-sleep="${m}"`, `${m} minutes`)).join("") +
     item(`data-sleep="track"`, "End of this track", { active: S.sleep?.mode === "track" }) +
     (S.sleep ? `<li><hr class="dropdown-divider"></li>` + item(`data-sleep="off"`, "Turn off") : "");
+  $("#mp-sleep-menu").innerHTML = sleepHtml;
+  const stSleep = $("#st-sleep-menu");
+  if (stSleep) stSleep.innerHTML = sleepHtml;
 }
 
 function renderQueue() {
-  $("#mp-queue-count").textContent = String(S.queue.length);
+  const n = String(S.queue.length);
+  $("#mp-queue-count").textContent = n;
+  const stc = $("#st-queue-count");
+  if (stc) stc.textContent = n;
   const ul = $("#mp-queue-list");
   if (!ul) return;
   ul.innerHTML = S.queue.map((t, i) => `
@@ -668,14 +690,16 @@ function bindMenus() {
   const on = (sel, fn) => $(sel).addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) fn(b); });
   on("#mp-rate-menu", (b) => setRate(Number(b.dataset.rate)));
   on("#vw-rate-menu", (b) => setRate(Number(b.dataset.rate)));
+  on("#st-rate-menu", (b) => setRate(Number(b.dataset.rate)));
   on("#vw-quality-menu", (b) => { if (b.dataset.q) setQuality(b.dataset.q === "auto" || b.dataset.q === "audio" ? b.dataset.q : Number(b.dataset.q)); });
   on("#vw-cc-menu", (b) => {
     if (b.dataset.sub != null) setSubtitle(b.dataset.sub === "off" ? null : S.subs[Number(b.dataset.sub)]);
     if (b.dataset.subsize) { S.subSize = b.dataset.subsize; savePrefs(); renderMenus(); }
   });
   on("#mp-sleep-menu", (b) => { if (b.dataset.sleep) setSleep(b.dataset.sleep); });
+  on("#st-sleep-menu", (b) => { if (b.dataset.sleep) setSleep(b.dataset.sleep); });
   // dropdowns must escape the window's overflow:hidden → fixed positioning
-  $$("#miniplayer [data-bs-toggle=dropdown], #vwin [data-bs-toggle=dropdown]").forEach((b) =>
+  $$("#miniplayer [data-bs-toggle=dropdown], #vwin [data-bs-toggle=dropdown], #stage [data-bs-toggle=dropdown]").forEach((b) =>
     new bootstrap.Dropdown(b, { popperConfig: (d) => ({ ...d, strategy: "fixed" }) }));
 }
 
@@ -715,7 +739,19 @@ function bindQueue() {
   });
 }
 
-function toggleQueue() { S.queueOpen = !S.queueOpen; $("#mp-queue").hidden = !S.queueOpen; renderControls(); }
+function setQueueOpen(on) {
+  S.queueOpen = !!on;
+  const q = $("#mp-queue");
+  if (q) q.hidden = !S.queueOpen;
+  if (S.queueOpen) import("./equalizer.js").then((m) => m.closeEqualizer?.()).catch(() => {});
+  renderControls();
+  window.dispatchEvent(new CustomEvent("player-change", {
+    detail: { key: current()?.key, playing: S.playing, queueOpen: S.queueOpen },
+  }));
+}
+
+function toggleQueue() { setQueueOpen(!S.queueOpen); }
+
 function toggleShuffle() {
   S.shuffle = !S.shuffle;
   if (S.shuffle) S.bag = makeBag(S.queue.length, S.index);
@@ -795,7 +831,22 @@ export const playerApi = {
   current, now, dur, seekTo, toggle, next, prev,
   toggleShuffle: () => toggleShuffle(),
   cycleRepeat: () => cycleRepeat(),
-  state: () => ({ playing: S.playing, loading: S.loading, shuffle: S.shuffle, repeat: S.repeat }),
+  setRate: (r) => setRate(r),
+  setSleep: (opt) => setSleep(opt),
+  toggleQueue: () => toggleQueue(),
+  setQueueOpen: (on) => setQueueOpen(on),
+  downloadCurrent: () => {
+    const tr = current();
+    if (tr?.kind === "yt") window.dispatchEvent(new CustomEvent("queue-download", { detail: { urls: [tr.url] } }));
+  },
+  state: () => ({
+    playing: S.playing, loading: S.loading, shuffle: S.shuffle, repeat: S.repeat,
+    rate: S.rate, sleep: !!S.sleep, queueOpen: S.queueOpen, queueLen: S.queue.length,
+  }),
   /** The element that carries the sound right now (for the visualiser's analyser). */
   soundElement: () => (E.dual || E.master === A ? A : E.master),
+  /** True when the current track has a picture stream (YouTube video / dual HD). */
+  hasPicture: () => hasPicture(),
+  /** The shared ``<video id="mp-v">`` node (may be moved into the stage). */
+  videoElement: () => V,
 };

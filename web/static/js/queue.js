@@ -7,6 +7,7 @@
 import { api } from "./api.js";
 import { confirmDialog, copyText, toast, withBusy, initTooltips } from "./ui.js";
 import { fileTrack, isMediaName } from "./player.js";
+import { getUiPrefs } from "./prefs.js";
 import { addSpeedSample, deliverySoon, leftText, speedAverage } from "./queue-logic.js";
 import {
   $, $$, esc, htmlToEl, fmtBytes, fmtDuration, fmtEta, setText, setAttr, splitSpeed, tween,
@@ -427,6 +428,7 @@ function maybeAutoSave(job, prev) {
   const had = lastDelivery.get(job.job_id);  // undefined = first time this tab sees the job
   lastDelivery.set(job.job_id, !!job.delivery);
   if (firstSnapshot || prev === undefined || autoSaved.has(job.job_id)) return;
+  if (!getUiPrefs().autoSave) return;  // Settings → browser preference
   const ready = serverMode
     ? !!job.delivery && TERMINAL.has(job.status) && had === false
     : job.deliver_zip && ["completed", "partial"].includes(job.status) && !TERMINAL.has(prev);
@@ -514,7 +516,8 @@ function toggleSelected(id) {
 async function runBulk(ids, action, { clear = false, button } = {}) {
   if (!ids.length) return;
   const cfg = BULK_CONFIRM[action];
-  if (cfg && !(await confirmDialog({ ...cfg, body: `${ids.length} download${ids.length === 1 ? "" : "s"} — ${cfg.body}` }))) return;
+  const needConfirm = cfg && (getUiPrefs().confirmDelete || !["remove", "remove-files"].includes(action));
+  if (needConfirm && !(await confirmDialog({ ...cfg, body: `${ids.length} download${ids.length === 1 ? "" : "s"} — ${cfg.body}` }))) return;
   try {
     const r = await withBusy(button, () => api.bulk(ids, action));
     const bits = [`${BULK_TEXT[action]}: ${r.affected} done`];
@@ -595,10 +598,13 @@ function renderStats(s) {
   drawSpark();
   setPar(s.max_parallel);
 
-  const badgeEl = $("#nav-badge");
   const active = (s.active || 0) + (s.queued || 0);
-  badgeEl.hidden = !active;
-  setText(badgeEl, String(active));
+  for (const id of ["nav-badge", "nav-badge-top"]) {
+    const badgeEl = $(`#${id}`);
+    if (!badgeEl) continue;
+    badgeEl.hidden = !active;
+    setText(badgeEl, String(active));
+  }
   document.title = s.active ? `↓ ${s.active} · ${sp.value} ${sp.unit} — mst-ytdl` : "mst-ytdl";
 }
 
@@ -776,7 +782,7 @@ async function onClick(e) {
         await api.remove(c.id, false); toast("Removed from list", "info", { ms: 2200 });
         break;
       case "remove-files":
-        if (!(await confirmDialog({ title: "Delete files too?", body: "The downloaded files are permanently deleted from disk.", confirmText: "Delete", danger: true }))) return;
+        if (getUiPrefs().confirmDelete && !(await confirmDialog({ title: "Delete files too?", body: "The downloaded files are permanently deleted from disk.", confirmText: "Delete", danger: true }))) return;
         { const r = await api.remove(c.id, true); toast(r.message || "Deleted", "ok", { ms: 2600 }); }
         break;
     }
@@ -813,7 +819,8 @@ export function initQueue() {
   });
   $$("[data-q]").forEach((b) => b.addEventListener("click", async () => {
     const k = b.dataset.q, cfg = BULK[k];
-    if (cfg.confirm && !(await confirmDialog(cfg.confirm))) return;
+    const skipDelConfirm = !getUiPrefs().confirmDelete && k === "clear-finished";
+    if (cfg.confirm && !skipDelConfirm && !(await confirmDialog(cfg.confirm))) return;
     try { const r = await withBusy(b, () => api.queue(k)); toast(cfg.ok(r.affected), r.affected ? "ok" : "info", { ms: 2400 }); }
     catch (err) { toast(err.detail, "err"); }
   }));
