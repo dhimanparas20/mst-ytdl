@@ -15,7 +15,7 @@ from models import (
     VIDEO_HEIGHTS,
     RuntimeSettings,
 )
-from services import access_service, runtime_service
+from services import access_service, runtime_service, subscription_service
 
 router = APIRouter(tags=["system"])
 
@@ -48,10 +48,10 @@ def health() -> HealthResponse:
     js = get_js_runtimes()
     js_name = next(iter(js)) if js else None
     if not js_name:
-        detail.append("no JS runtime (node/deno/bun) — some YouTube formats may be missing")
+        detail.append("no JS runtime (node/deno/bun) — YouTube downloads/playback will fail for many formats")
 
     return HealthResponse(
-        status="ok" if redis_ok and worker_ok and ffmpeg else "degraded",
+        status="ok" if redis_ok and worker_ok and ffmpeg and js_name else "degraded",
         redis=redis_ok,
         worker=worker_ok,
         ffmpeg=ffmpeg,
@@ -87,9 +87,12 @@ def config() -> ConfigResponse:
         delivery_ttl_minutes=s.server.delivery_ttl_minutes if s.server.mode else 0,
         max_job_items=s.server.max_job_items if s.server.mode else 0,
         max_active_jobs=s.server.max_active_jobs if s.server.mode else 0,
+        max_subscriptions=subscription_service.limit(),
         visitor_cookie_hours=s.server.visitor_cookie_hours if s.server.mode else 0,
         lyrics=bool(s.download.lyrics_url),
         connect_enabled=s.server.connect_enabled,
+        maintenance=s.server.mode and s.server.maintenance,
+        maintenance_message=s.server.maintenance_message if s.server.mode and s.server.maintenance else "",
     )
 
 

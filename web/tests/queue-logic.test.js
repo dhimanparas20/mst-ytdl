@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import {
   clampWindow, fadeVolume, fmtClock, makeBag, moveItem, nextIndex, pickQuality, pickSubtitle, qualityLabel,
-  activeLine, addSpeedSample, speedAverage, removeItem, resizeFromCorner, shuffleRest, sleepRemaining, snapWindow,
+  activeLine, addSpeedSample, deliverySoon, leftText, speedAverage, removeItem, resizeFromCorner, shuffleRest, sleepRemaining, snapWindow,
 } from "../static/js/queue-logic.js";
 
 const Q = [{ height: 1080, label: "1080p" }, { height: 720, label: "720p" }, { height: 480, label: "480p" }, { height: 360, label: "360p" }, { height: 144, label: "144p" }];
@@ -195,4 +195,21 @@ test("activeLine: the lyric line being sung", () => {
   assert.equal(activeLine(L, 5.1), 1);                  // 150 ms lead so the highlight is not late
   assert.equal(activeLine(L, 8.99), 3);                 // equal stamps: the last one wins
   assert.equal(activeLine(L, 1000), 4);
+});
+
+test("deliverySoon: urgent inside the last 10 minutes (and once expired)", () => {
+  const now = 1_000_000;
+  assert.equal(deliverySoon(now + 3600, now), false);
+  assert.equal(deliverySoon(now + 601, now), false);
+  assert.equal(deliverySoon(now + 599, now), true);
+  assert.equal(deliverySoon(now - 5, now), true);
+});
+
+test("leftText: minutes, hours, under a minute", () => {
+  const now = 5000;
+  assert.equal(leftText(now + 30, now), "expires in under a minute");
+  assert.equal(leftText(now - 30, now), "expires in under a minute");
+  assert.equal(leftText(now + 54 * 60, now), "available for 54 min");
+  assert.equal(leftText(now + 3600, now), "available for 1 h 0 min");
+  assert.equal(leftText(now + 95 * 60, now), "available for 1 h 35 min");
 });

@@ -55,7 +55,20 @@ class TestSystem:
     def test_health_ok_with_worker_heartbeat(self, client, fake_redis):
         fake_redis.set(heartbeat_key(), str(time.time()), ex=60)
         r = client.get("/api/health").json()
-        assert r["worker"] is True and r["status"] == "ok"
+        assert r["worker"] is True
+        # JS runtime is required for ok (YouTube n-challenge); CI/dev machines usually have node.
+        if r["js_runtime"] and r["ffmpeg"]:
+            assert r["status"] == "ok"
+        else:
+            assert r["status"] == "degraded"
+
+    def test_health_degraded_without_js_runtime(self, client, fake_redis, monkeypatch):
+        fake_redis.set(heartbeat_key(), str(time.time()), ex=60)
+        import api.routers.system as sysmod
+        monkeypatch.setattr(sysmod, "get_js_runtimes", lambda: None)
+        r = client.get("/api/health").json()
+        assert r["worker"] is True and r["js_runtime"] is None and r["status"] == "degraded"
+        assert any("JS runtime" in d for d in r["detail"])
 
     def test_health_reports_redis_outage(self, client, monkeypatch):
         class Dead:

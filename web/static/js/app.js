@@ -8,10 +8,12 @@ import { initStage } from "./stage.js";
 import { initLibrary, loadLibrary, currentPath } from "./library.js";
 import { applySnapshot, initQueue, setParCap, setQueueMode, showRuntime } from "./queue.js";
 import { initConnect } from "./connect.js";
+import { initDeliveries } from "./deliveries.js";
+import { initSubscriptions } from "./subscriptions.js";
 import { initSettings, renderHealth } from "./settings.js";
 import { connectEvents } from "./sse.js";
 import { enableRipple, initTooltips, toast } from "./ui.js";
-import { $, $$ } from "./util.js";
+import { $, $$, hideCookieBanner } from "./util.js";
 
 const TABS = ["new", "queue", "library"];
 const desktop = matchMedia("(min-width: 992px)");
@@ -48,8 +50,8 @@ function paintMode(cfg) {
   const tip = server
     ? `<b>Server mode</b> — running as a shared site.<ul class="mode-tip">
         <li>Your downloads are private to this browser</li>
-        <li>Finished files are saved to your device and deleted from the server after ${ttl} min</li>
-        <li>The library is read-only</li>
+        <li>Finished files: use <b>Save</b> on the job card (deleted from the server after ${ttl} min)</li>
+        <li>Library = shared host files (read-only), not your personal downloads</li>
         <li>Use your own YouTube cookies (Settings)</li></ul>
        <b>Local mode</b> — a personal downloader: one shared queue, files stay in the server's downloads folder, everything is open.`
     : `<b>Local mode</b> — a personal downloader.<ul class="mode-tip">
@@ -59,6 +61,25 @@ function paintMode(cfg) {
        <b>Server mode</b> (<code>SERVER_MODE=true</code>) — for a public site: private queue per browser, files handed to the browser then deleted after ${ttl} min, admin-locked library, per-visitor cookies.`;
   chip.setAttribute("data-bs-original-title", tip);
   bootstrap.Tooltip.getInstance(chip)?.setContent({ ".tooltip-inner": tip });
+  const libTip = $("#lib-mode-tip");
+  if (libTip) {
+    libTip.hidden = !server;
+    libTip.innerHTML = server
+      ? `<i class="bi bi-info-circle"></i> Library shows <b>shared host files</b>. Your finished downloads appear as <b>Save</b> on the Downloads job card (kept ~${ttl} min).`
+      : "";
+  }
+}
+
+/** Server mode: tell visitors up front that new downloads are refused (the server enforces it: HTTP 503). */
+function paintMaintenance(cfg) {
+  const on = !!(cfg?.server_mode && cfg.maintenance);
+  $("#maint-banner").hidden = !on;
+  $("#maint-banner-text").textContent = on ? (cfg.maintenance_message || "Please try again later.") : "";
+}
+
+async function pollMaintenance() {
+  if (!document.body.classList.contains("server-mode")) return;
+  try { paintMaintenance(await api.config()); } catch { /* the health pill already says the server is away */ }
 }
 
 async function pollHealth() {
@@ -116,11 +137,15 @@ async function boot() {
   initTooltips();
   initQueue();
   initLibrary();
+  initDeliveries();
   initSettings();
   initConnect();
   initPlayer();
   initStage();
   initSplitter();
+  $("#cookie-banner-fix")?.addEventListener("click", () => window.dispatchEvent(new CustomEvent("open-cookies")));
+  $("#cookie-banner-dismiss")?.addEventListener("click", hideCookieBanner);
+  window.addEventListener("cookies-changed", hideCookieBanner);
 
   // tabs
   $("#tabs-top").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) setTab(b.dataset.tab); });
@@ -138,9 +163,11 @@ async function boot() {
     const [cfg, rt] = await Promise.all([api.config(), api.runtime()]);
     document.body.classList.toggle("server-mode", !!cfg.server_mode);  // before anything renders
     paintMode(cfg);
+    paintMaintenance(cfg);
     setQueueMode(cfg);
     initComposer(cfg);
     initCart(cfg);
+    initSubscriptions(cfg);
     setParCap(cfg.max_parallel_cap);
     showRuntime(rt);
     $("#s-par").max = cfg.max_parallel_cap;
@@ -166,7 +193,8 @@ async function boot() {
 
   pollHealth();
   setInterval(pollHealth, 15000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) pollHealth(); });
+  setInterval(pollMaintenance, 60000);  // the admin can flip it live
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { pollHealth(); pollMaintenance(); } });
 }
 
 boot();

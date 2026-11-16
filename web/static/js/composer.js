@@ -6,6 +6,7 @@ import { ytTrack } from "./player.js";
 import { toast, withBusy } from "./ui.js";
 import {
   $, $$, esc, htmlToEl, debounce, extractUrls, fmtDuration, compressSelection, parseSelection, store,
+  maybeCookieBanner, showCookieBanner, hideCookieBanner,
 } from "./util.js";
 
 const FORMATS = { audio: ["mp3", "m4a", "opus", "flac", "wav"], video: ["mp4", "mkv", "webm"] };
@@ -16,7 +17,7 @@ const HEIGHT_LABEL = { 1440: "1440p", 2160: "4K" };
 
 const S = {
   src: "link", kind: "audio", format: "mp3", q: { audio: "192", video: "1080" },
-  o: { thumb: true, meta: true, subs: false, langs: "en", over: false, num: true, speed: "", folder: "", plmode: "auto" },
+  o: { thumb: true, meta: true, subs: false, langs: "en", over: false, sb: false, num: true, speed: "", folder: "", plmode: "auto" },
   cfg: null, urls: [], preview: null, previewFor: "", selection: new Set(), analyzing: 0, searchResults: [], feed: [], playlists: [], accLoaded: false,
 };
 
@@ -78,6 +79,7 @@ function renderOptions() {
   $("#o-meta").checked = S.o.meta;
   $("#o-subs").checked = S.o.subs && S.kind === "video";
   $("#o-over").checked = S.o.over;
+  $("#o-sb").checked = S.o.sb;
   $("#o-num").checked = S.o.num;
   $("#o-langs").value = S.o.langs;
   $("#o-speed").value = S.o.speed;
@@ -116,8 +118,24 @@ function readUrls() {
     hint.innerHTML = `<i class="bi bi-check2-circle"></i>${S.urls.length} link${S.urls.length > 1 ? "s" : ""} ready${skipped > 0 ? ` <span class="muted">· ${skipped} ignored</span>` : ""}`;
   }
   updateGo();
+  renderUrlChips();
   if (S.urls.length === 1) { if (S.urls[0] !== S.previewFor) analyzeSoon(S.urls[0]); }
-  else clearPreview();
+  else if (S.urls.length > 1) {
+    const keep = S.urls.includes(S.previewFor) ? S.previewFor : S.urls[0];
+    if (keep !== S.previewFor) analyzeSoon(keep);
+  } else clearPreview();
+}
+
+function renderUrlChips() {
+  const host = $("#url-chips");
+  if (!host) return;
+  if (S.urls.length < 2) { host.hidden = true; host.innerHTML = ""; return; }
+  host.hidden = false;
+  host.innerHTML = S.urls.map((u, i) => {
+    const short = u.replace(/^https?:\/\/(www\.)?/, "").slice(0, 42);
+    const active = u === S.previewFor ? " active" : "";
+    return `<button type="button" class="url-chip${active}" data-url-i="${i}" title="${esc(u)}"><span class="uc-t">${esc(short)}</span><span class="uc-x" data-url-rm="${i}" aria-label="Remove">×</span></button>`;
+  }).join("");
 }
 
 const analyzeSoon = debounce((url) => analyze(url), 550);
@@ -128,6 +146,7 @@ function clearPreview() {
   S.preview = null; S.previewFor = ""; S.selection = new Set();
   $("#preview").innerHTML = "";
   $("#amb-banner").hidden = true;
+  renderUrlChips();
   renderQuality(); updateGo();
 }
 
@@ -143,13 +162,16 @@ async function analyze(url) {
     if (ticket !== S.analyzing) return;  // a newer request superseded this one
     S.preview = info;
     S.selection = new Set(info.entries.filter((e) => e.available).map((e) => e.index));
+    renderUrlChips();
     renderPreview();
     renderQuality();
     updateGo();
   } catch (e) {
     if (ticket !== S.analyzing) return;
     S.preview = null;
-    $("#preview").innerHTML = `<div class="job-error mt-2"><i class="bi bi-exclamation-octagon-fill"></i><span>${esc(e.detail || e.message)}</span></div>`;
+    const msg = e.detail || e.message;
+    maybeCookieBanner(msg);
+    $("#preview").innerHTML = `<div class="job-error mt-2"><i class="bi bi-exclamation-octagon-fill"></i><span>${esc(msg)}</span></div>`;
     updateGo();
   }
 }
@@ -185,6 +207,7 @@ function renderPreview() {
         <button class="btn-ghost sm flex-1" data-prev-play><i class="bi bi-play-fill"></i>Play${p.kind === "playlist" ? " playlist" : ""}</button>
         ${p.kind === "playlist" ? `<button class="btn-ghost sm flex-1" data-prev-shuffle><i class="bi bi-shuffle"></i>Shuffle playlist</button>` : ""}
         <button class="btn-ghost sm flex-1" data-prev-cart><i class="bi bi-bag-plus"></i>${p.kind === "playlist" ? "Selected to cart" : "Add to cart"}</button>
+        ${p.kind === "playlist" ? `<button class="btn-ghost sm flex-1" data-prev-sub data-bs-toggle="tooltip" title="Download new uploads automatically"><i class="bi bi-bell-fill"></i>Subscribe</button>` : ""}
       </div>
       ${p.kind === "playlist" ? `
         <div class="flex items-center justify-between mt-3">
@@ -272,6 +295,10 @@ function onPreviewEvent(e) {
   if (e.target.closest("[data-prev-play]")) return playPreview(false);
   if (e.target.closest("[data-prev-cart]")) { const list = previewEntries(); return list.length ? toCart(list) : toast("Select at least one track first.", "info"); }
   if (e.target.closest("[data-prev-shuffle]")) return playPreview(true);
+  if (e.target.closest("[data-prev-sub]")) {  // follow the previewed channel / playlist (subscriptions.js listens)
+    window.dispatchEvent(new CustomEvent("subscribe-add", { detail: { url: S.preview.url, title: S.preview.title } }));
+    return;
+  }
   const pick = e.target.closest("[data-pick]");
   if (pick) { S.o.plmode = pick.dataset.pick; renderOptions(); analyze(S.urls[0]); return; }
   if (e.target.id === "sel-all") {
@@ -293,6 +320,7 @@ function buildBody(urls) {
     embed_metadata: S.o.meta,
     embed_thumbnail: S.o.thumb && !NO_COVER.has(S.format),
     overwrite: S.o.over,
+    sponsorblock: S.o.sb,
     numbering: S.o.num,
   };
   if (S.kind === "audio" && LOSSY.has(S.format)) body.quality = S.q.audio;
@@ -312,11 +340,29 @@ export function currentOptions() {
   return opts;
 }
 
+/** Snapshot of composer format state so the cart can seed its own picker. */
+export function formatState() {
+  return { kind: S.kind, format: S.format, q: { ...S.q }, audio_formats: FORMATS.audio, video_formats: FORMATS.video,
+    audio_bitrates: S.cfg?.audio_bitrates || ["64", "128", "192", "256", "320"],
+    video_heights: S.cfg?.video_heights || ["144", "240", "360", "480", "720", "1080", "1440", "2160"] };
+}
+
+/** Apply format/quality back into the composer (keeps prefs in sync when the cart changes them). */
+export function applyFormatState({ kind, format, q } = {}) {
+  if (kind && FORMATS[kind]) S.kind = kind;
+  if (format && FORMATS[S.kind]?.includes(format)) S.format = format;
+  if (q) Object.assign(S.q, q);
+  refreshAll();
+}
+
 /** "MP3 · 192 kbps" — what the current choice produces. */
-export function formatLabel() {
-  const vq = effectiveVideoQuality();
-  const q = S.kind === "audio" ? (LOSSY.has(S.format) ? (S.q.audio === "best" ? "best" : `${S.q.audio} kbps`) : "") : (vq === "best" ? "best" : HEIGHT_LABEL[vq] || `${vq}p`);
-  return `${S.format.toUpperCase()}${q ? " · " + q : ""}`;
+export function formatLabel(state = null) {
+  const kind = state?.kind || S.kind;
+  const format = state?.format || S.format;
+  const qq = state?.q || S.q;
+  const vq = kind === "video" ? (qq.video || "best") : null;
+  const q = kind === "audio" ? (LOSSY.has(format) ? (qq.audio === "best" ? "best" : `${qq.audio} kbps`) : "") : (vq === "best" ? "best" : HEIGHT_LABEL[vq] || `${vq}p`);
+  return `${format.toUpperCase()}${q ? " · " + q : ""}`;
 }
 
 function selectionSpec() {
@@ -394,7 +440,11 @@ async function doSearch(e) {
     S.searchResults = await api.search(q, $("#search-music").checked);
     if (!S.searchResults.length) { host.innerHTML = `<div class="muted text-center p-3">No results.</div>`; return; }
     host.innerHTML = resultsHTML(S.searchResults);
-  } catch (err) { host.innerHTML = `<div class="job-error"><i class="bi bi-exclamation-octagon-fill"></i><span>${esc(err.detail || err.message)}</span></div>`; }
+  } catch (err) {
+    const msg = err.detail || err.message;
+    maybeCookieBanner(msg);
+    host.innerHTML = `<div class="job-error"><i class="bi bi-exclamation-octagon-fill"></i><span>${esc(msg)}</span></div>`;
+  }
 }
 
 /** Track rows + the "play all / shuffle / cart / download all" bar — shared by search results and the home feed. */
@@ -457,10 +507,13 @@ function accSkeleton() {
   $("#acc-feed").innerHTML = Array.from({ length: 3 }, () => `<div class="result"><div class="skeleton" style="width:92px;height:52px"></div><div style="flex:1"><div class="skeleton" style="height:13px;width:80%;margin-bottom:7px"></div><div class="skeleton" style="height:11px;width:40%"></div></div></div>`).join("");
 }
 
-const needCookies = (text) => `<div class="glass-in p-3 text-center">
+const needCookies = (text) => {
+  showCookieBanner(text || "Add your YouTube cookies to see playlists and your home feed.");
+  return `<div class="glass-in p-3 text-center">
   <div class="mb-2"><i class="bi bi-person-lock" style="font-size:26px;color:var(--g2)"></i></div>
   <div class="small mb-2">${esc(text)}</div>
   <button class="btn-grad sm" type="button" data-acc-cookies><i class="bi bi-key-fill me-1"></i>Add YouTube cookies</button></div>`;
+};
 
 function playlistCard(p, i) {
   const icon = p.music ? "heart-fill" : p.id === "WL" ? "clock-history" : p.pinned ? "hand-thumbs-up-fill" : "music-note-list";
@@ -484,7 +537,10 @@ async function loadAccount(force = false) {
   $("#acc-playlists").innerHTML = S.playlists.map(playlistCard).join("");
   S.feed = home.status === "fulfilled" ? home.value.entries : [];
   const warn = pl.value.message || (home.status === "fulfilled" ? home.value.message : home.reason.detail || home.reason.message);
-  if (warn && !S.feed.length) $("#acc-msg").innerHTML = `<div class="job-error mb-2"><i class="bi bi-exclamation-triangle-fill"></i><span>${esc(warn)}</span></div>`;
+  if (warn && !S.feed.length) {
+    maybeCookieBanner(warn);
+    $("#acc-msg").innerHTML = `<div class="job-error mb-2"><i class="bi bi-exclamation-triangle-fill"></i><span>${esc(warn)}</span></div>`;
+  }
   $("#acc-feed").innerHTML = S.feed.length ? resultsHTML(S.feed) : `<div class="muted text-center p-3">Nothing to show in your home feed.</div>`;
 }
 
@@ -549,7 +605,7 @@ export function initComposer(cfg) {
     if (rerender) renderOptions();
     savePrefs();
   });
-  bind("#o-thumb", "thumb"); bind("#o-meta", "meta"); bind("#o-subs", "subs"); bind("#o-over", "over"); bind("#o-num", "num");
+  bind("#o-thumb", "thumb"); bind("#o-meta", "meta"); bind("#o-subs", "subs"); bind("#o-over", "over"); bind("#o-sb", "sb"); bind("#o-num", "num");
   bind("#o-speed", "speed", "value");
   bind("#o-langs", "langs", "value", false); bind("#o-folder", "folder", "value", false);
 
@@ -559,6 +615,21 @@ export function initComposer(cfg) {
   const input = $("#url-input");
   input.addEventListener("input", readUrls);
   input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onGo(); } });
+  $("#url-chips")?.addEventListener("click", (e) => {
+    const rm = e.target.closest("[data-url-rm]");
+    if (rm) {
+      e.preventDefault(); e.stopPropagation();
+      const i = Number(rm.dataset.urlRm);
+      const next = S.urls.filter((_, j) => j !== i);
+      input.value = next.join("\n");
+      readUrls();
+      return;
+    }
+    const chip = e.target.closest("[data-url-i]");
+    if (!chip) return;
+    const url = S.urls[Number(chip.dataset.urlI)];
+    if (url) analyze(url);
+  });
   $("#paste-btn").addEventListener("click", async () => {
     try {
       const t = await navigator.clipboard.readText();
@@ -566,7 +637,7 @@ export function initComposer(cfg) {
     } catch { toast("Clipboard access was blocked — paste with Ctrl+V instead.", "warn"); }
   });
   $("#preview").addEventListener("change", onPreviewEvent);
-  $("#preview").addEventListener("click", (e) => { if (e.target.closest("[data-pick], [data-prev-play], [data-prev-shuffle], [data-prev-cart], [data-e-play], [data-e-cart], [data-e-dl]")) onPreviewEvent(e); });
+  $("#preview").addEventListener("click", (e) => { if (e.target.closest("[data-pick], [data-prev-play], [data-prev-shuffle], [data-prev-cart], [data-prev-sub], [data-e-play], [data-e-cart], [data-e-dl]")) onPreviewEvent(e); });
   $("#amb-banner").addEventListener("click", (e) => { if (e.target.closest("[data-pick]")) onPreviewEvent(e); });
   $("#preview").addEventListener("input", (e) => {
     if (e.target.id !== "sel-spec" || !S.preview) return;

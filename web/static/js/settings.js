@@ -2,7 +2,7 @@
 
 import { api } from "./api.js";
 import { toast, withBusy } from "./ui.js";
-import { $, esc, setText } from "./util.js";
+import { $, cookieChipState, esc, setText } from "./util.js";
 import { showRuntime } from "./queue.js";
 
 let cfg = null;
@@ -61,6 +61,25 @@ function paintCookies(c, target = ckTarget) {
   $("#ck-modal-status").innerHTML = `${html} <span class="faint">— ${s.detail}</span>`;
   if ($("#ck-path")) $("#ck-path").textContent = c.path || "cookies/cookies.txt";
   $("#ck-clear").hidden = c.source !== "file";
+}
+
+/** Topbar chip: "Cookies · signed in / none / expiring". Server mode shows the visitor's own cookies, never the server's. */
+async function refreshCookieChip() {
+  const chip = $("#cookie-chip");
+  if (!chip) return;
+  let state = null;
+  try {
+    cfg = cfg || await api.config();
+    state = cookieChipState(await CK[cfg.server_mode ? "mine" : "server"].get());
+  } catch { /* status unavailable → hide the chip */ }
+  chip.hidden = !state;
+  if (!state) return;
+  chip.className = `tag cookie-chip ${state.tone}`;
+  setText($("#cookie-chip-text"), state.text);
+  chip.setAttribute("aria-label", state.text);
+  chip.setAttribute("data-bs-original-title", state.title);
+  chip.setAttribute("title", state.title);
+  bootstrap.Tooltip.getInstance(chip)?.setContent({ ".tooltip-inner": state.title });
 }
 
 async function loadCookies(target = ckTarget) {
@@ -171,7 +190,9 @@ export function initSettings() {
   $("#ck-open").addEventListener("click", () => openCookies("server"));
   $("#myck-open").addEventListener("click", () => openCookies("mine"));
   // the config may not be loaded yet (it is fetched when the settings dialog first opens): the target depends on it
-  window.addEventListener("cookies-changed", () => loadCookies());
+  window.addEventListener("cookies-changed", () => { loadCookies(); refreshCookieChip(); });
+  $("#cookie-chip")?.addEventListener("click", () => window.dispatchEvent(new CustomEvent("open-cookies")));
+  refreshCookieChip();  // loads the config (mode) first, so it also primes `cfg` for the dialog
   window.addEventListener("open-cookies", async () => {
     try { cfg = cfg || await api.config(); } catch { /* fall back to the personal-mode editor */ }
     openCookies(cfg?.server_mode ? "mine" : "server");
@@ -189,9 +210,10 @@ export function renderHealth(h) {
   else if (!h.redis) { cls = "bad"; text = "Redis down"; }
   else if (!h.worker) { cls = "warn"; text = "No worker"; }
   else if (!h.ffmpeg) { cls = "warn"; text = "ffmpeg missing"; }
+  else if (!h.js_runtime) { cls = "warn"; text = "No JS runtime"; }
   pill.className = `health ${cls}`;
   pill.querySelector(".h-text").textContent = text;
-  const tip = h ? (h.detail.length ? h.detail.join(" • ") : `yt-dlp ${h.yt_dlp} · ffmpeg ✓ · worker ✓`) : "Cannot reach the API";
+  const tip = h ? (h.detail.length ? h.detail.join(" • ") : `yt-dlp ${h.yt_dlp} · ffmpeg ✓ · worker ✓ · ${h.js_runtime || "no JS"}`) : "Cannot reach the API";
   pill.setAttribute("data-bs-original-title", tip);
   pill.setAttribute("title", tip);
   const inst = bootstrap.Tooltip.getInstance(pill);
@@ -202,5 +224,6 @@ export function renderHealth(h) {
   if (h && !h.redis) msgs.push(`Redis is not reachable. Start it: <code>docker compose up -d redis</code>`);
   else if (h && !h.worker) msgs.push(`No download worker is running, so jobs will wait in the queue. Start one: <code>uv run python main.py worker</code>`);
   if (h && h.redis && !h.ffmpeg) msgs.push(`ffmpeg was not found — conversions will fail. Set <code>DL_FFMPEG_PATH</code> or install ffmpeg.`);
+  if (h && h.redis && !h.js_runtime) msgs.push(`No JS runtime (node/deno/bun) — YouTube formats may fail. Install Node 22+ or set <code>DL_JS_RUNTIME</code>.`);
   host.innerHTML = msgs.map((m) => `<div class="banner"><i class="bi bi-exclamation-triangle-fill"></i><div>${m}</div></div>`).join("");
 }

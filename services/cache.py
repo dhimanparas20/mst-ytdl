@@ -1,14 +1,15 @@
 """
-CacheService — server-mode caches that save YouTube round trips and whole downloads.
+CacheService — caches that save YouTube round trips (both modes) and whole downloads (server mode).
 
-    JSON cache   previews, searches and playlist expansions (``SERVER_CACHE_MINUTES``). Many visitors
-                 look at the same links; the resolve task re-reads the playlist the user just previewed.
+    JSON cache   previews, searches and playlist expansions (``SERVER_CACHE_MINUTES``, 0 = off). Works in
+                 both modes: many visitors look at the same links, and the resolve task re-reads the
+                 playlist the user just previewed. Dropped when the server cookies change (:meth:`clear_json`).
     media cache  "video X as mp3 192k with these embed options" → a finished file of some job. Another
                  visitor asking for the same thing within the delivery TTL gets a hard link (or a copy)
                  instead of a fresh download + ffmpeg run. Entries expire with the delivery TTL and are
                  verified on every hit (the file may already have been swept).
 
-Personal mode never reads or writes these (``enabled`` is False).
+The media cache is server mode only (``enabled`` is False in personal mode); the JSON cache is not.
 
 Keys:
     P:META:<sha1>    STRING  JSON value
@@ -40,14 +41,19 @@ class CacheService:
 
     @property
     def enabled(self) -> bool:
+        """Media cache switch: server mode only (personal mode keeps one file per download)."""
         return get_settings().server.mode
+
+    @property
+    def json_enabled(self) -> bool:
+        """JSON (metadata) cache switch: on in both modes unless ``SERVER_CACHE_MINUTES`` is 0."""
+        return get_settings().server.cache_minutes > 0
 
     # ── JSON (metadata) ─────────────────────────────────────────────
 
     def get_json(self, kind: str, *key: Any) -> Any | None:
         """A cached value, or None (also when caching is off or Redis hiccups)."""
-        s = get_settings().server
-        if not self.enabled or s.cache_minutes <= 0:
+        if not self.json_enabled:
             return None
         try:
             raw = get_redis().get(f"{get_key_prefix()}:META:{_digest(kind, *key)}")
@@ -57,25 +63,43 @@ class CacheService:
             return None
 
     def set_json(self, kind: str, value: Any, *key: Any) -> None:
-        s = get_settings().server
-        if not self.enabled or s.cache_minutes <= 0:
+        if not self.json_enabled:
             return
         try:
             get_redis().set(
-                f"{get_key_prefix()}:META:{_digest(kind, *key)}", json.dumps(value), ex=s.cache_minutes * 60
+                f"{get_key_prefix()}:META:{_digest(kind, *key)}",
+                json.dumps(value),
+                ex=get_settings().server.cache_minutes * 60,
             )
         except Exception:
             logger.debug("meta cache write failed", exc_info=True)
+
+    def clear_json(self) -> int:
+        """
+        Drop every cached preview / search / playlist / account read (they were made with the old cookies).
+
+        Returns:
+            Number of keys removed (0 when Redis hiccups — a cache must never break the request).
+        """
+        try:
+            r = get_redis()
+            keys = list(r.scan_iter(f"{get_key_prefix()}:META:*", count=500))
+            for i in range(0, len(keys), 500):
+                r.delete(*keys[i:i + 500])
+            return len(keys)
+        except Exception:
+            logger.debug("meta cache clear failed", exc_info=True)
+            return 0
 
     # ── media files ─────────────────────────────────────────────────
 
     @staticmethod
     def media_key(video_id: str, options: DownloadOptions) -> str:
-        """Everything that changes the produced file (format, quality, tags, cover, subtitles, naming)."""
+        """Everything that changes the produced file (format, quality, tags, cover, subtitles, SponsorBlock cuts, naming)."""
         o = options
         return _digest(
             "media", video_id, o.format.value, o.quality, o.embed_metadata, o.embed_thumbnail,
-            o.subtitles, ",".join(o.subtitle_langs), get_settings().download.include_id_in_name,
+            o.subtitles, ",".join(o.subtitle_langs), o.sponsorblock, get_settings().download.include_id_in_name,
         )
 
     def lookup_media(self, video_id: str | None, options: DownloadOptions) -> Path | None:

@@ -6,15 +6,17 @@
 // so they never import this module.
 
 import { api } from "./api.js";
-import { currentOptions, formatLabel } from "./composer.js";
+import { applyFormatState, currentOptions, formatLabel, formatState } from "./composer.js";
 import { ytTrack } from "./player.js";
 import { confirmDialog, toast, withBusy } from "./ui.js";
-import { $, esc, fmtDuration, store } from "./util.js";
+import { $, $$, esc, fmtDuration, store } from "./util.js";
 
 const KEY = "mst.cart";
 const MAX = 500;
+const LOSSY = new Set(["mp3", "m4a"]);
 let items = load();
 let cfg = {};
+let fmt = { kind: "audio", format: "mp3", q: { audio: "192", video: "1080" }, audio_formats: ["mp3", "m4a", "opus", "flac", "wav"], video_formats: ["mp4", "mkv", "webm"], audio_bitrates: ["64", "128", "192", "256", "320"], video_heights: ["360", "720", "1080"] };
 
 function load() {
   const v = store(KEY);
@@ -58,6 +60,30 @@ function paintBadge(pop) {
   if (pop) { const b = $("#open-cart"); b.classList.remove("pop"); void b.offsetWidth; b.classList.add("pop"); }
 }
 
+function seedFormat() {
+  const s = formatState();
+  fmt = { ...s, q: { ...s.q } };
+  if (!fmt[`${fmt.kind}_formats`].includes(fmt.format)) fmt.format = fmt[`${fmt.kind}_formats`][0];
+}
+
+function paintFormat() {
+  $$("#cart-kind-seg button").forEach((b) => b.classList.toggle("active", b.dataset.ckind === fmt.kind));
+  const formats = fmt.kind === "audio" ? fmt.audio_formats : fmt.video_formats;
+  $("#cart-format-chips").innerHTML = formats.map((f) =>
+    `<button type="button" class="chip ${f === fmt.format ? "active" : ""}" data-cf="${f}">${f.toUpperCase()}</button>`).join("");
+  const qHost = $("#cart-quality-chips");
+  if (fmt.kind === "audio" && LOSSY.has(fmt.format)) {
+    qHost.innerHTML = fmt.audio_bitrates.map((b) =>
+      `<button type="button" class="chip ${fmt.q.audio === b ? "active" : ""}" data-cq="${b}">${b}k</button>`).join("");
+  } else if (fmt.kind === "video") {
+    qHost.innerHTML = fmt.video_heights.map((h) =>
+      `<button type="button" class="chip ${String(fmt.q.video) === String(h) ? "active" : ""}" data-cq="${h}">${h === "2160" ? "4K" : h + "p"}</button>`).join("");
+  } else {
+    qHost.innerHTML = `<span class="faint" style="font-size:12px">${fmt.format === "opus" ? "original stream" : "lossless — no bitrate"}</span>`;
+  }
+  $("#cart-format").textContent = formatLabel(fmt);
+}
+
 function render() {
   const list = $("#cart-list");
   const n = items.length;
@@ -68,7 +94,7 @@ function render() {
   $("#cart-go").disabled = n === 0;
   $("#cart-head-count").textContent = n ? `· ${n} track${n === 1 ? "" : "s"}` : "";
   $("#cart-go-label").textContent = cfg.server_mode || $("#cart-zip").checked ? `Download ${n} as ZIP` : `Download all ${n}`;
-  $("#cart-format").textContent = formatLabel();
+  paintFormat();
   $("#cart-ttl").textContent = String(cfg.delivery_ttl_minutes || 60);
   const name = $("#cart-name").value.trim() || "Cart …";
   $("#cart-folder-hint").textContent = `downloads/${name}/`;
@@ -83,8 +109,17 @@ function render() {
 }
 
 function open() {
+  seedFormat();
   render();
   bootstrap.Modal.getOrCreateInstance($("#cart-modal")).show();
+}
+
+function cartBodyOptions() {
+  applyFormatState({ kind: fmt.kind, format: fmt.format, q: fmt.q });
+  const opts = currentOptions();
+  if (fmt.kind === "audio" && LOSSY.has(fmt.format)) opts.quality = fmt.q.audio;
+  if (fmt.kind === "video") opts.quality = String(fmt.q.video);
+  return opts;
 }
 
 async function checkout(btn) {
@@ -92,7 +127,7 @@ async function checkout(btn) {
   const limit = cfg.server_mode ? cfg.max_job_items : cfg.max_playlist_items;
   if (limit && items.length > limit) return toast(`One download takes at most ${limit} tracks — remove ${items.length - limit}.`, "warn");
   const body = {
-    ...currentOptions(),
+    ...cartBodyOptions(),
     entries: items.map(({ url, title, uploader, thumbnail, duration }) => ({ url, title, uploader, thumbnail, duration })),
     name: $("#cart-name").value.trim() || null,
     zip: !cfg.server_mode && $("#cart-zip").checked,
@@ -129,7 +164,28 @@ export function initCart(config) {
   $("#cart-go").addEventListener("click", (e) => checkout(e.currentTarget));
   $("#cart-zip").addEventListener("change", render);
   $("#cart-name").addEventListener("input", () => { $("#cart-folder-hint").textContent = `downloads/${$("#cart-name").value.trim() || "Cart …"}/`; });
-  $("#cart-modal").addEventListener("show.bs.modal", render);
+  $("#cart-kind-seg")?.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ckind]");
+    if (!b) return;
+    fmt.kind = b.dataset.ckind;
+    const list = fmt.kind === "audio" ? fmt.audio_formats : fmt.video_formats;
+    if (!list.includes(fmt.format)) fmt.format = list[0];
+    paintFormat();
+  });
+  $("#cart-format-chips")?.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-cf]");
+    if (!b) return;
+    fmt.format = b.dataset.cf;
+    paintFormat();
+  });
+  $("#cart-quality-chips")?.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-cq]");
+    if (!b) return;
+    if (fmt.kind === "audio") fmt.q.audio = b.dataset.cq;
+    else fmt.q.video = b.dataset.cq;
+    paintFormat();
+  });
+  $("#cart-modal").addEventListener("show.bs.modal", () => { seedFormat(); render(); });
   window.addEventListener("cart-add", (e) => addToCart(e.detail?.entries));
   window.addEventListener("storage", (e) => { if (e.key === KEY) { items = load(); paintBadge(false); if ($("#cart-modal").classList.contains("show")) render(); } });
 }

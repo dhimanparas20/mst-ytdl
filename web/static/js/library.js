@@ -2,6 +2,7 @@
 // one at a time or for a multi-selection.
 
 import { api } from "./api.js";
+import { loadDeliveries } from "./deliveries.js";
 import { fileTrack } from "./player.js";
 import { confirmDialog, promptDialog, toast, withBusy } from "./ui.js";
 import { $, esc, fmtBytes, fmtDate, setText } from "./util.js";
@@ -21,22 +22,9 @@ const isAudio = (e) => !e.is_dir && (AUDIO.has(e.ext) || VIDEO.has(e.ext));
 const isPlayable = (e) => !e.is_dir && (AUDIO.has(e.ext) || VIDEO.has(e.ext));
 const tracksOf = (list) => list.filter(isAudio).map((e) => fileTrack({ path: e.path, title: e.name, artist: e.path.includes("/") ? e.path.split("/").slice(-2, -1)[0] : "Library" }));
 
-/** Open the media modal (used for video; audio goes to the mini player). */
+/** Play a library file in the player dock (audio and video alike). */
 export function openPlayer({ title, path: p }) {
   window.dispatchEvent(new CustomEvent("player-play", { detail: { tracks: [fileTrack({ path: p, title })], start: 0 } }));
-}
-function _legacyOpenPlayer({ title, path: p }) {
-  const ext = (p.split(".").pop() || "").toLowerCase();
-  const url = api.fileUrl(p);
-  $("#player-title").textContent = title || p.split("/").pop();
-  const body = $("#player-body");
-  if (VIDEO.has(ext)) body.innerHTML = `<video src="${esc(url)}" controls autoplay playsinline></video>`;
-  else if (AUDIO.has(ext)) { window.dispatchEvent(new CustomEvent("player-play", { detail: { tracks: [fileTrack({ path: p, title })], start: 0 } })); return; }
-  else { location.href = api.fileUrl(p, true); return; }
-  const modalEl = $("#player-modal");
-  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-  modalEl.addEventListener("hidden.bs.modal", () => { body.innerHTML = ""; }, { once: true });  // stops playback
-  modal.show();
 }
 
 function renderCrumbs() {
@@ -92,6 +80,7 @@ function setSelectMode(on) {
 }
 
 export async function loadLibrary(p = path) {
+  loadDeliveries();  // server mode: "My downloads" on top (no-op otherwise)
   try {
     entries = await api.library(p);
     path = p;

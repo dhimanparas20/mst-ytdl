@@ -1,5 +1,5 @@
 // Immersive "player mode": a full-screen glass stage over the blurred album art, with an animated
-// scene (turntable · aurora · orbit · random per track) that reacts to the music, and synced lyrics.
+// scene (turntable · aurora · orbit · bars · ripple · constellation · random per track) that reacts to the music, and synced lyrics.
 //
 // Reads the player through `playerApi` (player.js) and its window events (player-track / player-change);
 // never touches the player's internals. The visualiser taps the playing <audio>/<video> with a Web Audio
@@ -12,8 +12,8 @@ import { activeLine } from "./queue-logic.js";
 import { $, $$, esc, fmtDuration, store } from "./util.js";
 
 const PREFS = "mst.stage";
-const SCENES = { vinyl: "Turntable", aurora: "Aurora", orbit: "Orbit", random: "Random" };
-const RANDOM_POOL = ["vinyl", "aurora", "orbit"];
+const SCENES = { vinyl: "Turntable", aurora: "Aurora", orbit: "Orbit", bars: "Bars", ripple: "Ripple", constellation: "Constellation", random: "Random" };
+const RANDOM_POOL = ["vinyl", "aurora", "orbit", "bars", "ripple", "constellation"];
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
 const S = {
@@ -23,7 +23,7 @@ const S = {
   seeking: false, raf: 0, bgFlip: false,
 };
 const A = { ctx: null, analyser: null, data: null, sources: new WeakMap() };
-let cv, g, particles = [];
+let cv, g, particles = [], rings = [], stars = [], lastBeat = 0;
 
 // ───────────────────────── open / close ─────────────────────────
 
@@ -80,7 +80,7 @@ function setScene(scene, { persist = true } = {}) {
   $("#stage").dataset.scene = S.activeScene;
   $("#st-scene-name").textContent = S.scene === "random" ? `Random · ${SCENES[S.activeScene]}` : SCENES[S.scene];
   $$("#st-scene-menu [data-scene]").forEach((b) => b.classList.toggle("active", b.dataset.scene === S.scene));
-  particles = [];
+  particles = []; rings = []; stars = [];
   if (persist) savePrefs();
 }
 
@@ -94,7 +94,7 @@ function onTrack(force = false) {
   $("#st-artist").textContent = t.artist || "";
   $("#st-src").textContent = t.kind === "yt" ? "YouTube" : "Library";
   const art = t.thumb || "";
-  for (const id of ["#st-label", "#st-orbit-art", "#st-aurora-art"]) {
+  for (const id of ["#st-label", "#st-orbit-art", "#st-aurora-art", "#st-scene-art"]) {
     const img = $(id);
     img.hidden = !art;
     if (art && img.getAttribute("src") !== art) img.src = art;
@@ -310,8 +310,71 @@ function draw(time, lv) {
     g.restore();
   }
 
-  // floating light motes (all scenes): rise faster with the beat
-  const want = scene === "vinyl" ? 38 : 60;
+  if (scene === "bars") {  // mirrored spectrum: lows in the middle, highs at the edges, reflected above / below
+    const N = Math.max(24, Math.min(64, Math.floor(w / 22))), gap = 4;
+    const bw = w / 2 / N - gap, maxH = h * 0.3;
+    for (let i = 0; i < N; i++) {
+      const bin = lv.spec ? lv.spec[1 + Math.floor((i / N) ** 1.4 * 90)] / 255
+        : (Math.sin(time / 220 - i * 0.35) * 0.5 + 0.5) * lv.mid * 1.5 * (1 - i / N * 0.6);
+      const bh = 4 + bin * maxH;
+      g.fillStyle = rgba(P[i % 2 ? 0 : 2], 0.3 + bin * 0.6);
+      for (const side of [1, -1]) {
+        const x = w / 2 + side * (i * (bw + gap) + gap / 2) - (side < 0 ? bw : 0);
+        g.beginPath();
+        g.roundRect(x, cy - bh, bw, bh * 2, Math.min(bw / 2, 6));
+        g.fill();
+      }
+    }
+  }
+
+  if (scene === "ripple") {  // a ring leaves the cover on every beat (and slowly while it is quiet)
+    const art = $("#st-scene-art").getBoundingClientRect();
+    const rx = art.left + art.width / 2, ry = art.top + art.height / 2, R0 = art.width / 2;
+    if ((lv.bass > 0.5 && time - lastBeat > 260) || time - lastBeat > 1800) { rings.push({ born: time, e: Math.min(1, 0.4 + lv.bass) }); lastBeat = time; }
+    const life = 2400, reach = Math.hypot(w, h) * 0.42;
+    rings = rings.filter((r) => time - r.born < life);
+    g.lineWidth = 3;
+    for (const r of rings) {
+      const k = (time - r.born) / life, ease = 1 - (1 - k) ** 3;
+      g.strokeStyle = rgba(P[Math.floor(r.born / 400) % P.length], (1 - k) * (0.25 + r.e * 0.5));
+      g.beginPath();
+      g.arc(rx, ry, R0 + 8 + ease * reach, 0, Math.PI * 2);
+      g.stroke();
+    }
+  }
+
+  if (scene === "constellation") {  // drifting stars joined when close; energy makes them flare and the links brighter
+    const want = Math.min(90, Math.floor((w * h) / 16000)), reach = Math.min(160, Math.max(100, w / 9));
+    while (stars.length < want) stars.push({ x: Math.random() * w, y: Math.random() * h, vx: (Math.random() - 0.5) * 0.5, vy: (Math.random() - 0.5) * 0.5, c: stars.length % 4, bin: 2 + Math.floor(Math.random() * 60) });
+    const speed = 0.6 + lv.bass * 2.2;
+    for (const s of stars) {
+      s.x = (s.x + s.vx * speed + w) % w;
+      s.y = (s.y + s.vy * speed + h) % h;
+      s.e = lv.spec ? lv.spec[s.bin] / 255 : lv.mid * (0.6 + 0.4 * Math.sin(time / 500 + s.bin));
+    }
+    g.lineWidth = 1;
+    for (let i = 0; i < stars.length; i++) {
+      const a = stars[i];
+      for (let j = i + 1; j < stars.length; j++) {
+        const b = stars[j], d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (d > reach) continue;
+        g.strokeStyle = rgba(P[a.c], (1 - d / reach) * (0.12 + (a.e + b.e) * 0.5 + lv.bass * 0.25));
+        g.beginPath();
+        g.moveTo(a.x, a.y);
+        g.lineTo(b.x, b.y);
+        g.stroke();
+      }
+    }
+    for (const s of stars) {
+      g.fillStyle = rgba(P[s.c], Math.min(1, 0.45 + s.e * 0.7));
+      g.beginPath();
+      g.arc(s.x, s.y, 1.6 + s.e * 4.5, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+
+  // floating light motes (all scenes but the constellation): rise faster with the beat
+  const want = scene === "constellation" ? 0 : scene === "vinyl" ? 38 : scene === "bars" ? 24 : 60;
   while (particles.length < want) particles.push(newMote(w, h, true));
   for (const p of particles) {
     p.y -= p.v * (0.6 + lv.bass * 2.2);

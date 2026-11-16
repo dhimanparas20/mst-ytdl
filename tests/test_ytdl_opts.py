@@ -110,6 +110,35 @@ class TestPostprocessors:
     def test_no_subtitle_pp_when_off(self):
         assert "FFmpegEmbedSubtitle" not in keys(build_postprocessors(o(F.MP4)))
 
+    @pytest.mark.parametrize("fmt", [F.MP3, F.MP4])
+    def test_sponsorblock_off_by_default(self, fmt):
+        k = keys(build_postprocessors(o(fmt)))
+        assert "SponsorBlock" not in k and "ModifyChapters" not in k
+
+    @pytest.mark.parametrize("fmt", [F.MP3, F.MP4])
+    def test_sponsorblock_on_adds_lookup_and_cut(self, fmt):
+        pps = build_postprocessors(o(fmt, sponsorblock=True))
+        k = keys(pps)
+        sb = pps[k.index("SponsorBlock")]
+        cut = pps[k.index("ModifyChapters")]
+        assert sb["categories"] == ["sponsor", "selfpromo", "interaction"]
+        assert sb["when"] == "after_filter"
+        assert cut["remove_sponsor_segments"] == ["sponsor", "selfpromo", "interaction"]
+        # lookup first, cut before the tags/chapters are written, existing steps untouched
+        assert k[0] == "SponsorBlock"
+        assert k.index("ModifyChapters") < k.index("FFmpegMetadata")
+        assert "FFmpegMetadata" in k and "EmbedThumbnail" in k
+
+    def test_sponsorblock_cuts_after_audio_extraction_and_subtitles(self):
+        k = keys(build_postprocessors(o(F.MP3, sponsorblock=True)))
+        assert k.index("FFmpegExtractAudio") < k.index("ModifyChapters")
+        k = keys(build_postprocessors(o(F.MP4, sponsorblock=True, subtitles=True)))
+        assert k.index("FFmpegEmbedSubtitle") < k.index("ModifyChapters")
+
+    def test_sponsorblock_without_metadata_still_cuts(self):
+        k = keys(build_postprocessors(o(F.MP4, sponsorblock=True, embed_metadata=False, embed_thumbnail=False)))
+        assert k == ["SponsorBlock", "ModifyChapters"]
+
 
 class TestBuildYdlOpts:
     def build(self, opt, **kw):
@@ -137,6 +166,10 @@ class TestBuildYdlOpts:
         assert self.build(o(F.MP3))["writethumbnail"] is True
         assert self.build(o(F.WAV))["writethumbnail"] is False
         assert self.build(o(F.MP3, embed_thumbnail=False))["writethumbnail"] is False
+
+    def test_sponsorblock_reaches_ydl_postprocessors(self):
+        assert "ModifyChapters" in keys(self.build(o(F.MP4, sponsorblock=True))["postprocessors"])
+        assert "ModifyChapters" not in keys(self.build(o(F.MP4))["postprocessors"])
 
     def test_speed_limit_priority_job_then_runtime_then_env(self, monkeypatch):
         monkeypatch.setattr(get_settings().download, "speed_limit", 300)

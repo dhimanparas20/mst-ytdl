@@ -64,8 +64,20 @@ export const api = {
 
   bulk: (ids, action) => request("POST", "/downloads/bulk", { ids, action }),
   checkoutCart: (body) => request("POST", "/cart/checkout", body),
+
+  /** Subscriptions: follow a channel / playlist; new uploads are queued by the server's periodic poll. */
+  subscriptions: () => request("GET", "/subscriptions"),
+  subscribe: (body) => request("POST", "/subscriptions", body),
+  /** action: pause | resume | check (check → { subscription, new, error }). */
+  subAction: (id, action) => request("POST", `/subscriptions/${encodeURIComponent(id)}/${action}`),
+  subDelete: (id) => request("DELETE", `/subscriptions/${encodeURIComponent(id)}`),
+
   /** "Save" a whole job: the file, or a ZIP (server mode: the prepared delivery). */
   jobFileUrl: (id) => `/api/downloads/${encodeURIComponent(id)}/file`,
+  /** Server mode: the visitor's ready files ("My downloads"); personal mode: always []. */
+  deliveries: () => request("GET", "/deliveries"),
+  /** "Keep longer": one more delivery TTL, once per file (404 gone, 409 already used). */
+  extendDelivery: (id) => request("POST", `/deliveries/${encodeURIComponent(id)}/extend`),
   /** One finished track of a job (owner-checked; works in both modes). */
   itemFileUrl: (id, download = false) => `/api/items/${encodeURIComponent(id)}/file${download ? "?download=true" : ""}`,
 

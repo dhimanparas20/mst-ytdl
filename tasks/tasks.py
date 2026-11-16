@@ -10,6 +10,7 @@ A task unpacks its arguments and delegates; ALL logic lives in ``services/``
                          + publish the worker heartbeat shown by /api/health
     build_delivery_task  server mode: prepare a finished job's file / ZIP
     sweep_deliveries_task every minute, server mode: delete expired deliveries
+    poll_subscriptions_task every 15 minutes: queue new uploads of followed channels / playlists
 
 Conventions:
     - ONE huey instance per process, defined here, re-exported by tasks/__init__.py
@@ -28,7 +29,15 @@ from huey import RedisHuey, crontab
 
 from configs import get_key_prefix, get_redis, get_redis_url, get_settings
 from modules import attach_server_logs, get_logger
-from services import admin_config, cookie_service, delivery_service, download_manager, download_runner, set_dispatcher
+from services import (
+    admin_config,
+    cookie_service,
+    delivery_service,
+    download_manager,
+    download_runner,
+    set_dispatcher,
+    subscription_service,
+)
 
 logger = get_logger(__name__)
 
@@ -106,6 +115,12 @@ def sweep_deliveries_task() -> None:
     """Server mode: delete deliveries older than SERVER_DELIVERY_TTL_MINUTES (no-op otherwise)."""
     delivery_service.sweep()
     cookie_service.sweep_scratch()
+
+
+@huey.periodic_task(crontab(minute="*/15"), name="poll_subscriptions")
+def poll_subscriptions_task() -> None:
+    """Queue new uploads of followed channels / playlists (see SubscriptionService.poll_all; never raises)."""
+    subscription_service.poll_all()
 
 
 class HueyDispatcher:

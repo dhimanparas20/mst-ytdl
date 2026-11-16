@@ -124,3 +124,52 @@ export function store(key, value) {
   } catch { /* storage unavailable (private mode) — preferences just won't persist */ }
   return null;
 }
+
+/** yt-dlp / account messages that mean the user must (re)link YouTube cookies. */
+const COOKIE_AUTH_RE = /cookies? are no longer valid|sign in to confirm|confirm you.?re not a bot|login cookie|missing required authentication|http error 401|cookies may have expired|add your youtube cookies|no longer valid|rotated in the browser/i;
+
+export function isCookieAuthError(msg) {
+  return !!msg && COOKIE_AUTH_RE.test(String(msg));
+}
+
+/** Show the global cookie health banner (dismissible; CTA opens the cookies modal). */
+export function showCookieBanner(reason) {
+  const el = $("#cookie-banner");
+  if (!el) return;
+  const text = $("#cookie-banner-text");
+  if (text) text.textContent = reason || "Your YouTube cookies look invalid or missing — link them to fix Mine, search and downloads.";
+  el.hidden = false;
+}
+
+export function hideCookieBanner() {
+  const el = $("#cookie-banner");
+  if (el) el.hidden = true;
+}
+
+/** If ``msg`` looks like a cookie/auth failure, show the banner. */
+export function maybeCookieBanner(msg) {
+  if (isCookieAuthError(msg)) showCookieBanner(String(msg).slice(0, 220));
+}
+
+/**
+ * Topbar cookie chip state from a ``CookieStatus``.
+ * @returns {{text: string, tone: "ok"|"warn"|"none", title: string} | null} null = status unavailable (hide the chip).
+ */
+export function cookieChipState(c, now = Date.now()) {
+  if (!c) return null;
+  if (!c.loaded) return { text: "Cookies · none", tone: "none", title: "No YouTube cookies loaded — click to add some" };
+  if (c.source === "browser" && !c.count) return { text: "Cookies · browser", tone: "ok", title: `Read from the ${c.browser || "browser"} profile` };
+  if (!c.login) return { text: "Cookies · not signed in", tone: "warn", title: "Cookies are loaded but carry no login session — click to fix" };
+  const warn = (c.warnings || [])[0];
+  const ms = c.expires_at ? Date.parse(c.expires_at) : NaN;
+  if (Number.isNaN(ms)) return { text: "Cookies · signed in", tone: warn ? "warn" : "ok", title: warn || "Signed in" };
+  if (ms <= now) return { text: "Cookies · expired", tone: "warn", title: "The login cookies have expired — click to refresh them" };
+  const days = Math.floor((ms - now) / 86400000);
+  const when = new Date(ms).toLocaleDateString();
+  if (days > 14) return { text: "Cookies · signed in", tone: warn ? "warn" : "ok", title: warn || `Signed in — login expires ${when}` };
+  return {
+    text: `Cookies · signed in · ${days < 1 ? "<1 d" : `${days} d`} left`,
+    tone: days <= 3 || warn ? "warn" : "ok",
+    title: warn || `Signed in — login expires ${when}`,
+  };
+}

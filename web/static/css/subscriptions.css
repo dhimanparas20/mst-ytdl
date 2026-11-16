@@ -1,0 +1,19 @@
+/* Subscriptions modal (web/static/js/subscriptions.js). Reuses the app.css tokens, glass and cart-empty styles. */
+.subs-list { list-style: none; margin: 0; padding: 0; max-height: min(52vh, 460px); overflow: auto; }
+.subs-list li {
+  display: grid; grid-template-columns: 64px 1fr auto; gap: 12px; align-items: center;
+  padding: 9px 6px; border-radius: 10px; animation: fadeUp .3s var(--ease) both;
+}
+.subs-list li + li { border-top: 1px solid var(--stroke); }
+.subs-list li:hover { background: rgba(255,255,255,.03); }
+.subs-list li.paused .s-main, .subs-list li.paused img { opacity: .55; }
+.subs-list img { width: 64px; height: 36px; object-fit: cover; border-radius: 6px; background: rgba(255,255,255,.05); }
+.subs-list .s-main { min-width: 0; }
+.subs-list .s-title { font-size: 13.5px; font-weight: 600; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.subs-list .s-title span:first-child { min-width: 0; }
+.subs-list .s-sub { font-size: 11.5px; color: var(--muted); min-width: 0; }
+.subs-list .s-err { font-size: 11.5px; color: #f87171; min-width: 0; }
+.subs-list .s-actions { display: flex; gap: 4px; }
+.subs-list .btn-icon.spin i { animation: subsSpin .8s linear infinite; }
+@keyframes subsSpin { to { transform: rotate(360deg); } }
+#open-subs.has-subs { color: var(--g2, inherit); }

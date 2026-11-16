@@ -5,7 +5,7 @@ Pure functions (no I/O except reading settings/clients) so every mapping is
 unit-testable without touching the network.
 
     format_selector / format_sort   quality chooser → yt-dlp format logic
-    build_postprocessors            mp3/m4a/... extraction, tags, cover art, subs
+    build_postprocessors            mp3/m4a/... extraction, tags, cover art, subs, SponsorBlock cuts
     build_ydl_opts                  the full ``YoutubeDL`` params dict
     friendly_error                  readable message + "worth retrying?" flag
 """
@@ -36,6 +36,9 @@ _THUMBNAIL_CAPABLE = {
 }
 # Containers that can carry embedded (soft) subtitles.
 _SUBTITLE_CAPABLE = {MediaFormat.MP4, MediaFormat.MKV, MediaFormat.WEBM}
+
+# SponsorBlock categories cut out when ``DownloadOptions.sponsorblock`` is on.
+SPONSORBLOCK_CATEGORIES: tuple[str, ...] = ("sponsor", "selfpromo", "interaction")
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _NON_RETRYABLE_HINTS = (
@@ -117,6 +120,14 @@ def build_postprocessors(options: DownloadOptions) -> list[dict[str, Any]]:
     fmt = options.format
     pps: list[dict[str, Any]] = []
 
+    if options.sponsorblock:
+        # Segment lookup runs right after extraction (before any download), like yt-dlp's CLI.
+        pps.append({
+            "key": "SponsorBlock",
+            "categories": list(SPONSORBLOCK_CATEGORIES),
+            "when": "after_filter",
+        })
+
     if fmt.is_audio:
         pp: dict[str, Any] = {"key": "FFmpegExtractAudio", "preferredcodec": fmt.value}
         if fmt is MediaFormat.MP3:
@@ -128,6 +139,17 @@ def build_postprocessors(options: DownloadOptions) -> list[dict[str, Any]]:
     if options.subtitles and fmt in _SUBTITLE_CAPABLE:
         pps.append({"key": "FFmpegSubtitlesConvertor", "format": "srt", "when": "before_dl"})
         pps.append({"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False})
+
+    if options.sponsorblock:
+        # Cut after conversion / subtitle embedding and BEFORE FFmpegMetadata, so the chapters
+        # written below already reflect the removed segments.
+        pps.append({
+            "key": "ModifyChapters",
+            "remove_sponsor_segments": list(SPONSORBLOCK_CATEGORIES),
+            "remove_chapters_patterns": [],
+            "remove_ranges": [],
+            "force_keyframes": False,
+        })
 
     if options.embed_metadata:
         pps.append({"key": "FFmpegMetadata", "add_chapters": True, "add_metadata": True})

@@ -4,12 +4,14 @@ MetadataService — understand a URL before (and while) downloading it.
     resolve_target(url, mode)   parse + allow-list + single/playlist decision
     preview(url, mode)          MediaInfo for the UI (title, qualities, entries)
     expand_playlist(url)        flat entry list used by the resolve task
+    latest(url, limit)          uncached head of a channel / playlist (subscription polling)
 
 Network calls (yt-dlp) are isolated in ``_extract`` so tests can stub it.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -55,6 +57,33 @@ class PlaylistInfo:
     uploader: str | None
     thumbnail: str | None
     entries: list[EntryInfo] = field(default_factory=list)
+
+
+@dataclass
+class LatestInfo:
+    """The head of a channel / playlist (subscription polling)."""
+
+    title: str
+    uploader: str | None
+    thumbnail: str | None
+    entries: list[EntryInfo] = field(default_factory=list)
+    short_ids: set[str] = field(default_factory=set)  # ids that look like YouTube Shorts
+    not_ready_ids: set[str] = field(default_factory=set)  # live / premiere not started: look again later
+
+
+SHORT_MAX_SECONDS = 60
+
+
+def is_short_entry(raw: dict[str, Any] | None) -> bool:
+    """Does a raw flat yt-dlp entry look like a YouTube Short? (``/shorts/`` URL, ``#shorts`` title, short duration)"""
+    if not raw:
+        return False
+    if "/shorts/" in str(raw.get("url") or raw.get("webpage_url") or ""):
+        return True
+    if "#shorts" in str(raw.get("title") or "").lower():
+        return True
+    duration = raw.get("duration")
+    return isinstance(duration, (int, float)) and 0 < duration <= SHORT_MAX_SECONDS
 
 
 def classify(parsed: ParsedUrl, mode: PlaylistMode) -> JobKind:
@@ -161,6 +190,39 @@ class MetadataService:
         with YoutubeDL(base_extract_opts(flat=True, max_items=limit)) as ydl:
             info = ydl.extract_info(url, download=False)
         return list((info or {}).get("entries") or [])
+
+    def latest(self, url: str, limit: int) -> LatestInfo:
+        """
+        Fresh (never cached) flat read of the first ``limit`` entries of a channel / playlist, for
+        subscription polling. Raises on yt-dlp errors — callers record them.
+
+        Shorts are detected here, from the raw entries (``/shorts/`` URL, ``#shorts`` title,
+        duration <= 60 s), because ``EntryInfo`` does not carry the raw URL.
+        """
+        info = self._extract_recent(url, limit)
+        raw = list(info.get("entries") or [])
+        entries = self.entries_from(raw, music="music.youtube.com" in url)
+        thumbs = info.get("thumbnails") or []
+        title = re.sub(r"\s+-\s+Videos$", "", (info.get("title") or "").strip())  # a channel's tab: "Name - Videos"
+        return LatestInfo(
+            title=title,
+            uploader=info.get("uploader") or info.get("channel"),
+            thumbnail=(thumbs[-1].get("url") if thumbs else None) or (entries[0].thumbnail if entries else None),
+            entries=entries,
+            short_ids={e.video_id for e, r in zip(entries, raw) if e.video_id and is_short_entry(r)},
+            not_ready_ids={
+                e.video_id for e, r in zip(entries, raw)
+                if e.video_id and (r or {}).get("live_status") in ("is_live", "is_upcoming")
+            },
+        )
+
+    def _extract_recent(self, url: str, limit: int) -> dict[str, Any]:
+        """One flat yt-dlp call limited to ``limit`` entries. Isolated so tests can monkeypatch it."""
+        with YoutubeDL(base_extract_opts(flat=True, max_items=limit)) as ydl:
+            info = ydl.extract_info(url, download=False)
+        if not info:
+            raise InvalidRequestError("yt-dlp returned no information for this URL")
+        return info
 
     @staticmethod
     def entries_from(raw: list[dict[str, Any] | None], *, music: bool = False) -> list[EntryInfo]:

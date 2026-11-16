@@ -39,6 +39,7 @@ from services.delivery import delivery_service
 from services.dispatch import get_dispatcher
 from services.runtime import runtime_service, slot_limiter
 from services.store import job_store
+from services.webhook import webhook_service
 from services.ytdl_opts import build_ydl_opts, friendly_error
 
 logger = get_logger(__name__)
@@ -48,6 +49,8 @@ _PP_LABELS = {
     "FFmpegExtractAudio": "converting audio",
     "FFmpegMerger": "merging video + audio",
     "Merger": "merging video + audio",
+    "SponsorBlock": "looking up sponsor segments",
+    "ModifyChapters": "cutting sponsor segments",
     "FFmpegMetadata": "writing tags",
     "EmbedThumbnail": "embedding cover art",
     "FFmpegEmbedSubtitle": "embedding subtitles",
@@ -229,6 +232,8 @@ class DownloadRunner:
                 delivery_service.maybe_build(job.job_id)
             except Exception:
                 logger.exception(f"building the delivery of job {job.job_id} failed (the sweep retries)")
+        if outcome in ("completed", "failed", "cancelled"):
+            webhook_service.notify_job(job.job_id)  # fires only when the whole job is finished; never raises
         return outcome
 
     # ── slot waiting ────────────────────────────────────────────────

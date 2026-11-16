@@ -26,9 +26,10 @@ downloads/
 | Control | **Start, pause, resume, cancel, retry** per track, per job, or for the whole queue. Pause keeps the `.part` file, so resume continues from the same byte |
 | Parallelism | Huey consumer threads = hard ceiling; a **live "parallel downloads" limit** (UI stepper) enforced across processes by a Redis slot limiter, plus yt-dlp's parallel fragment download inside each file |
 | Status | Per-job and per-track progress, speed, ETA, bytes, stage ("merging", "converting audio"…), live over **SSE** with a sparkline of total speed |
-| Extras | Cover art + tags embedded, subtitles (download + embed), speed cap, skip files that already exist (or *overwrite*), playlist track picker (`1-5, 8, 12-`), custom folder name, ZIP download of a playlist, built-in player + library browser |
+| Extras | Cover art + tags embedded, subtitles (download + embed), **SponsorBlock cut** (removes sponsor / self-promo / interaction segments, off by default), speed cap, skip files that already exist (or *overwrite*), playlist track picker (`1-5, 8, 12-`), custom folder name, ZIP download of a playlist, built-in player + library browser |
 | Resilience | Auto-retry for transient errors (not for private/removed videos), crash recovery (dead workers' downloads become *Paused*), health pill (Redis / worker / ffmpeg) |
 | Cart | **Download cart**: collect songs from search results, playlist previews and pasted links, then download them in one go (one folder, or one ZIP) |
+| Subscriptions | **Follow a channel or playlist**: new uploads are queued automatically (checked every 15 min) with the format you picked when subscribing — see *Subscriptions* below |
 | Admin dashboard | **`/admin`** (username + password): live analytics, every visitor's downloads, visitors & IP blocks, full file manager (hidden folders too), live settings and hard limits, maintenance mode, cache controls, log viewer |
 | Server mode | `SERVER_MODE=true` turns it into a public site: private per-visitor queues, finished files handed to the browser and **deleted after an hour**, admin-locked library management, limits — see below |
 | Safety | Host allow-list (YouTube only), path-traversal-proof library API, loopback bind by default |
@@ -59,7 +60,7 @@ A docked player plus a **floating video window** (drag by the header, resize fro
   <tr><td colspan="2" align="center"><sub>Orbit · the ring is the live audio spectrum</sub></td></tr>
 </table>
 
-While something plays, **✦** in the player (or `V`) opens a full-screen player over the blurred, slowly drifting cover art, with an animated scene that reacts to the music (Web Audio analyser): **Turntable** (spinning record with the cover as label, tonearm swings on), **Aurora** (drifting light in the cover's colours), **Orbit** (spectrum ring around the cover), or **Random each track**. The **“** button (or `Y`) shows lyrics: time-synced lines highlight as they are sung (click a line to jump there), else plain text. Lyrics come from [LRCLIB](https://lrclib.net) (free, no key) through our server (`GET /api/lyrics`, cached in Redis); only the cleaned artist / title / duration are sent. `Esc` closes. Honours *reduce motion*.
+While something plays, **✦** in the player (or `V`) opens a full-screen player over the blurred, slowly drifting cover art, with an animated scene that reacts to the music (Web Audio analyser): **Turntable** (spinning record with the cover as label, tonearm swings on), **Aurora** (drifting light in the cover's colours), **Orbit** (spectrum ring around the cover), **Bars** (mirrored spectrum bars), **Ripple** (rings leave the cover on each beat), **Constellation** (linked stars that flare with the music), or **Random each track**. The **“** button (or `Y`) shows lyrics: time-synced lines highlight as they are sung (click a line to jump there), else plain text. Lyrics come from [LRCLIB](https://lrclib.net) (free, no key) through our server (`GET /api/lyrics`, cached in Redis); only the cleaned artist / title / duration are sent. `Esc` closes. Honours *reduce motion*.
 
 ## Admin dashboard (`/admin`)
 
@@ -116,6 +117,17 @@ The bag button in the header opens the cart. Add with the *bag +* buttons on sea
 
 *Download all* creates **one job** with the format and options picked in *New download*: the files land in `downloads/<cart name>/` (`01 - Title.mp3` …). Turn on *Download as one ZIP* and the browser saves a ZIP of exactly those files when the job finishes. In server mode the cart is always handed over as a ZIP.
 
+## Subscriptions
+
+The bell button in the header opens **Subscriptions**. Paste a channel (`youtube.com/@name`) or playlist link, or press **Subscribe** on a playlist / channel preview in *New download*.
+
+- **Only future uploads are downloaded.** Subscribing reads what is on the channel / playlist *now* and marks it as seen without downloading it, so you never get a whole back catalogue dumped on you.
+- A periodic Huey task (every 15 minutes) reads the newest 15 uploads of a channel (the whole playlist for playlists, since new entries are usually appended) and queues every video it has not seen — oldest first, at most 25 per subscription per check — as a normal single-video download. A *Check now* button polls on demand.
+- Each subscription stores a **snapshot of your download options** (format, quality, embed switches, subtitles, SponsorBlock) taken when you subscribe; later changes in the composer do not affect it. Personal mode saves into a folder named after the channel / playlist (inside the default folder, if one is set).
+- **Skip Shorts** (on by default): videos of 60 s or less, `/shorts/` links and `#shorts` titles are ignored. Live streams / premieres that have not started are looked at again later.
+- Pause stops checking (resume picks up uploads that are still inside the polled window); deleting a subscription keeps files already downloaded. A failed check is shown on the subscription (`last_error`) and retried at the next poll; a refused download (e.g. too many unfinished downloads) is retried too.
+- **Server mode:** subscriptions belong to the visitor (their cookie), at most `SERVER_MAX_SUBSCRIPTIONS` each; their downloads follow the normal per-visitor rules and are delivered like any other (kept `SERVER_DELIVERY_TTL_MINUTES`). Personal mode allows 100.
+
 ## Server mode (`SERVER_MODE=true`)
 
 For running the app on a server for other people. Off by default; with `SERVER_MODE=false` nothing below applies.
@@ -128,8 +140,8 @@ For running the app on a server for other people. Off by default; with `SERVER_M
 | Cleanup | never | a Huey task every minute deletes jobs whose delivery is older than `SERVER_DELIVERY_TTL_MINUTES` (60): records, the job directory, temp dirs. Paused jobs idle that long and unreferenced directories go too |
 | Library | full control | **read-only** in the app (browse, play, save, ZIP); the admin manages files at `/admin` |
 | Settings | open | the app shows only the visitor's own cookies; limits, server cookies and everything else live at `/admin`; per-download folder / overwrite are ignored |
-| Limits | – | hard ceilings for parallel downloads (`TASK_MAX_PARALLEL_CAP`) and speed (`SERVER_MAX_SPEED`) that nothing can exceed (422), `SERVER_MAX_ACTIVE_JOBS` per visitor, `SERVER_MAX_JOB_ITEMS` per playlist / cart, `SERVER_MIN_FREE_MB` disk guard (503), `SERVER_RATE_LIMIT_PER_MINUTE` per IP on preview / search / submit (429) |
-| Caching | – | previews, searches and playlist reads cached `SERVER_CACHE_MINUTES`; a finished file is reused (hard link) when another visitor asks for the same video + format + options within the TTL |
+| Limits | – | hard ceilings for parallel downloads (`TASK_MAX_PARALLEL_CAP`) and speed (`SERVER_MAX_SPEED`) that nothing can exceed (422), `SERVER_MAX_ACTIVE_JOBS` per visitor, `SERVER_MAX_JOB_ITEMS` per playlist / cart, `SERVER_MAX_SUBSCRIPTIONS` per visitor, `SERVER_MIN_FREE_MB` disk guard (503), `SERVER_RATE_LIMIT_PER_MINUTE` per IP on preview / search / submit (429) |
+| Caching | previews, searches and playlist reads cached `SERVER_CACHE_MINUTES` (personal mode too) | the same, per visitor when they use their own cookies; a finished file is reused (hard link) when another visitor asks for the same video + format + options within the TTL |
 
 **YouTube cookies per visitor.** Your own cookies file is never used for visitors (unless `SERVER_SHARE_SERVER_COOKIES=true`). Anyone can paste *their* cookies in Settings → *Your YouTube cookies*: they are validated, kept in Redis for `SERVER_VISITOR_COOKIE_HOURS` (24) or until removed, and used only for that browser's previews, searches, downloads and playback (a private temp file per yt-dlp call, deleted afterwards; cookies YouTube rotates are written back). Caches filled with someone's cookies are kept per visitor; anonymous lookups stay shared.
 
@@ -267,9 +279,10 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `SERVER_ADMIN_SESSION_HOURS` | `12` | Admin login lifetime |
 | `SERVER_DELIVERY_TTL_MINUTES` | `60` | How long a prepared file / ZIP stays on the server |
 | `SERVER_MAX_ACTIVE_JOBS` / `SERVER_MAX_JOB_ITEMS` | `5` / `100` | Unfinished downloads per visitor / tracks per playlist or cart |
+| `SERVER_MAX_SUBSCRIPTIONS` | `20` | Followed channels / playlists per visitor (personal mode: fixed cap of 100) |
 | `SERVER_MIN_FREE_MB` | `2048` | Refuse new downloads below this free disk space |
 | `SERVER_RATE_LIMIT_PER_MINUTE` | `60` | Preview / search / submit calls per IP |
-| `SERVER_CACHE_MINUTES` | `10` | Preview / search / playlist cache (0 = off) |
+| `SERVER_CACHE_MINUTES` | `10` | Preview / search / playlist cache, **both modes** (0 = off). Saving or clearing the server cookies drops it |
 | `SERVER_VISITOR_COOKIE_HOURS` | `24` | How long a visitor's own pasted cookies are kept |
 | `SERVER_MAX_SPEED` | – | Hard speed ceiling per download, e.g. `5M`: speed caps above it are rejected, uncapped downloads are held to it |
 | `SERVER_ADMIN_USERNAME` | `admin` | Username for `/admin` |
@@ -277,6 +290,7 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `SERVER_ANALYTICS_DAYS` | `30` | How long dashboard statistics are kept |
 | `SERVER_SHARE_SERVER_COOKIES` | `false` | Let visitors without own cookies use the server's cookies file |
 | `DL_LYRICS_URL` | `https://lrclib.net` | Lyrics provider for the player; empty = off |
+| `DL_WEBHOOK_URL` | – | Both modes. One HTTP POST (JSON `{event, job_id, title, status, …}`) when a job finishes — completed / failed / partial / cancelled; an ntfy topic URL works. Empty = off |
 | `LOG_LEVEL`, `LOG_FORMAT` | `INFO`, `text` | `text` or `json` |
 | `LOG_DIR`, `LOG_TO_FILE` | `./logs`, `true` | Where the log files go; set `LOG_TO_FILE=false` for console only |
 
@@ -284,7 +298,7 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 
 | Method & path | Purpose |
 |---|---|
-| `POST /downloads` | Queue URLs `{urls[], format?, quality?, playlist_mode?, playlist_items?, embed_metadata?, embed_thumbnail?, subtitles?, subtitle_langs?, speed_limit?, overwrite?, folder?}` → `{jobs[], rejected[]}` |
+| `POST /downloads` | Queue URLs `{urls[], format?, quality?, playlist_mode?, playlist_items?, embed_metadata?, embed_thumbnail?, subtitles?, subtitle_langs?, speed_limit?, overwrite?, sponsorblock?, folder?}` → `{jobs[], rejected[]}` |
 | `GET /downloads` · `GET /downloads/{id}` | List (`status`, `limit`, `offset`, `include_items`) / one job with items |
 | `POST /downloads/{id}/{pause\|resume\|cancel\|retry}` · `DELETE /downloads/{id}?delete_files=` | Job-level control / removal |
 | `GET /items/{id}` · `POST /items/{id}/{pause\|resume\|cancel\|retry}` | Single track |
@@ -297,7 +311,10 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `POST /library/bulk-delete` · `/library/move` · `/library/rename` · `GET /library/folders` | Library bulk operations; `GET /library/zip?path=a&path=b` zips a selection |
 | `GET /cookies` · `PUT /cookies` `{text}` · `DELETE /cookies` · `POST /cookies/test` | Cookie status (flags/counts only), save pasted Netscape cookies, remove, live-test against YouTube |
 | `POST /cart/checkout` | The download cart as ONE job `{entries[{url, title?, uploader?, thumbnail?, duration?}], name?, zip?, …download options}` → `{job, rejected[]}` |
+| `GET /subscriptions` · `POST /subscriptions` `{url, skip_shorts?, …download options}` | Followed channels / playlists (`[{sub_id, url, kind, title, options, skip_shorts, enabled, last_check, last_error, last_new, downloaded, seen_count, …}]`) · follow one: the options are snapshotted and the videos already there are marked seen, not downloaded (422 not a channel / playlist or unreadable, 409 already followed, 429 limit reached) |
+| `POST /subscriptions/{id}/pause` · `/resume` · `/check` · `DELETE /subscriptions/{id}` | Stop / restart polling · poll now → `{subscription, new, error}` (also while paused; 409 while a poll runs) · unfollow (downloaded files stay). Server mode: your own only, others are 404 |
 | `GET /downloads/{id}/file` · `GET /items/{id}/file?download=` | Save a finished job (single file, or ZIP of a playlist / cart; server mode: the prepared delivery, 409 while preparing) / one finished track |
+| `GET /deliveries` · `POST /deliveries/{id}/extend` | Server mode: "My downloads" — this visitor's ready files / ZIPs `[{job_id, title, kind, name, size, expires_at, extended, status}]` (soonest to expire first; `[]` in personal mode) · "Keep longer": one extra `SERVER_DELIVERY_TTL_MINUTES`, once per file (404 not yours / gone, 409 already extended, 422 personal mode) |
 | `GET /my-cookies` · `PUT /my-cookies` `{text}` · `DELETE /my-cookies` · `POST /my-cookies/test` | Server mode: this visitor's own YouTube cookies (status never contains values; 422 in personal mode) |
 | `POST /connect` · `GET /connect/{code}` · `POST /connect/{code}` `{text}` · `GET /connect/extension.zip` | Extension sign-in: new one-time code `{code, expires_in, server}` · its state (`waiting` / `done`, owner only) · the extension's cookie upload (the code is the credential) · the extension, pre-set to this server |
 | `GET /account/playlists` · `GET /account/home?limit=` | The signed-in account's playlists (pinned Liked music / Liked videos / Watch later first) and home feed as tracks: `{signed_in, playlists \| entries, message}`; never an error for missing / expired cookies |
@@ -309,7 +326,7 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 | `GET /admin/maintenance` · `POST /admin/maintenance/{action}` · `GET /admin/logs` · `/admin/logs/{name}` | Housekeeping actions; log tail (`lines`, `level`, `q`) |
 | `GET /events` | SSE stream of queue snapshots (server mode: your queue only) |
 | `GET /library` · `/library/file` · `/library/zip` · `DELETE /library` · `GET /library/usage` | Browse, stream (Range), zip, delete; usage = library files / bytes + disk total / used / free. Server mode: writes need the admin (403) |
-| `GET/PUT /runtime` · `GET /config` · `GET /health` | Live settings, UI option lists, dependency check |
+| `GET/PUT /runtime` · `GET /config` · `GET /health` | Live settings, UI option lists (incl. `maintenance` / `maintenance_message` in server mode: the UI shows a banner while new downloads are refused), dependency check |
 
 ## Tests
 

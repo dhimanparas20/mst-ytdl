@@ -14,13 +14,14 @@ Lifecycle:
     1. the job finishes (every item settled) → :meth:`maybe_build` picks the file / builds the ZIP and
        writes a :class:`models.Delivery` record with ``expires_at = now + SERVER_DELIVERY_TTL_MINUTES``
     2. the browser fetches it (``GET /api/downloads/{id}/file``, owner-checked, Range-capable)
-    3. :meth:`sweep` (Huey, every minute) purges expired jobs: Redis records, the job directory and the
+    3. optionally the visitor taps "Keep longer": :meth:`extend` adds one more TTL, once (``extended`` flag)
+    4. :meth:`sweep` (Huey, every minute) purges expired jobs: Redis records, the job directory and the
        items' temp dirs. Safety nets: finished jobs without a record get one; paused jobs idle past the
        TTL are dropped; ``.deliveries`` / ``.tmp`` directories nobody references are removed once older
        than the TTL.
 
 Keys (``P`` = prefix):
-    P:DELIVERY:<job_id>        HASH   Delivery (one JSON value per field)
+    P:DELIVERY:<job_id>        HASH   Delivery (one JSON value per field; ``extended`` = Keep longer used)
     P:DELIVERIES               ZSET   job id → expires_at (the cleanup index)
     P:DELIVERY_LOCK:<job_id>   STRING one builder at a time
 """
@@ -34,9 +35,12 @@ import time
 import zipfile
 from pathlib import Path
 
+import redis
+
 from configs import get_key_prefix, get_redis, get_settings
 from models import (
     Delivery,
+    DeliveryEntry,
     DeliveryKind,
     DeliveryView,
     DownloadItem,
@@ -48,6 +52,7 @@ from models import (
 from modules import get_logger
 from modules.redis_util import decode_hash, encode_hash
 from modules.ytdlp_util import sanitize_filename
+from services.errors import ConflictError, NotFoundError
 from services.store import job_store
 
 logger = get_logger(__name__)
@@ -124,7 +129,71 @@ class DeliveryService:
         """What the UI may see (nothing for a NONE record)."""
         if d is None or d.kind is DeliveryKind.NONE:
             return None
-        return DeliveryView(kind=d.kind, name=d.name, size=d.size, expires_at=d.expires_at)
+        return DeliveryView(kind=d.kind, name=d.name, size=d.size, expires_at=d.expires_at, extended=d.extended)
+
+    def list_for_owner(self, owner: str | None, now: float | None = None) -> list[DeliveryEntry]:
+        """
+        The files / ZIPs a visitor can still save ("My downloads"), soonest-to-expire first.
+
+        Only ready deliveries count: no NONE records, nothing expired and nothing whose file is gone.
+        ``owner=None`` lists every delivery (unscoped admin use). Personal mode has none.
+        """
+        if not self.enabled:
+            return []
+        now = time.time() if now is None else now
+        jobs = job_store.get_jobs(job_store.list_job_ids(0, 1000, owner))
+        jobs = [j for j in jobs if self.is_delivery_folder(j.folder)]
+        records = self.get_many([j.job_id for j in jobs])
+        items = job_store.get_items_many([j.job_id for j in jobs if j.job_id in records])
+        out: list[DeliveryEntry] = []
+        for j in jobs:
+            d = records.get(j.job_id)
+            if d is None or d.kind is DeliveryKind.NONE or d.expires_at <= now or self.file_path(d) is None:
+                continue
+            status = derive_job_status(j.resolve_state, j.resolve_error, items[j.job_id])
+            out.append(
+                DeliveryEntry(
+                    job_id=j.job_id, title=j.title or d.name, kind=d.kind, name=d.name, size=d.size,
+                    expires_at=d.expires_at, extended=d.extended, status=status,
+                )
+            )
+        return sorted(out, key=lambda e: e.expires_at)
+
+    def extend(self, job_id: str, now: float | None = None) -> Delivery:
+        """
+        "Keep longer": push the expiry back by one TTL — once per delivery.
+
+        An optimistic WATCH/MULTI transaction, so two taps (or two tabs) can never extend twice.
+
+        Raises:
+            NotFoundError: no ready delivery (never built, nothing finished, expired, or the file is gone).
+            ConflictError: it was already extended.
+        """
+        now = time.time() if now is None else now
+        r = get_redis()
+        key = self._key(job_id)
+        with r.pipeline() as pipe:
+            while True:
+                try:
+                    pipe.watch(key)
+                    d = self.get(job_id)
+                    if d is None or d.kind is DeliveryKind.NONE or d.expires_at <= now or self.file_path(d) is None:
+                        raise NotFoundError("This download is no longer on the server")
+                    if d.extended:
+                        raise ConflictError("This download was already extended once")
+                    d = d.model_copy(update={"expires_at": d.expires_at + self.ttl, "extended": True})
+                    pipe.multi()
+                    pipe.hset(key, mapping=encode_hash({"expires_at": d.expires_at, "extended": True}))
+                    pipe.expire(key, int(d.expires_at - now) + 3600)
+                    pipe.zadd(self._index, {job_id: d.expires_at})
+                    pipe.execute()
+                    break
+                except redis.WatchError:
+                    continue  # changed under us (sweep / a second tap): re-read and decide again
+                finally:
+                    pipe.reset()
+        logger.info(f"delivery extended {job_id}: until {d.expires_at:.0f}")
+        return d
 
     def _save(self, d: Delivery) -> None:
         r = get_redis()

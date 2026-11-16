@@ -31,6 +31,8 @@ from configs import get_settings
 from models import (
     CartRequest,
     ControlAction,
+    Delivery,
+    DeliveryEntry,
     DeliveryKind,
     DownloadItem,
     DownloadJob,
@@ -61,6 +63,7 @@ from services.library import library_service
 from services.metadata import metadata_service
 from services.runtime import runtime_service, slot_limiter
 from services.store import job_store
+from services.webhook import webhook_service
 from services.ytdl_opts import friendly_error, speed_ceiling
 
 logger = get_logger(__name__)
@@ -103,6 +106,7 @@ class DownloadManager:
                 subtitle_langs=req.subtitle_langs,
                 speed_limit=req.speed_limit,
                 overwrite=req.overwrite,
+                sponsorblock=req.sponsorblock,
                 numbering=dl.playlist_numbering if req.numbering is None else req.numbering,
             )
         except (ValidationError, ValueError) as exc:
@@ -145,9 +149,10 @@ class DownloadManager:
         return req.model_copy(update={"folder": None, "overwrite": False})
 
     def _after_settle(self, job_id: str) -> None:
-        """Server mode: a direct change (e.g. cancelling queued items) may have finished the job."""
+        """A direct change (e.g. cancelling queued items) may have finished the job: build its delivery (server mode), tell the webhook."""
         if self.server_mode:
             get_dispatcher().enqueue_delivery(job_id)
+        webhook_service.notify_job(job_id)
 
     def submit(self, req, owner: str | None = None) -> tuple[list[JobView], list[dict[str, str]]]:
         """
@@ -326,6 +331,7 @@ class DownloadManager:
                 {"resolve_state": ResolveState.FAILED, "resolve_error": message},
             )
             logger.error(f"resolve failed {job_id}: {message}")
+            webhook_service.notify_job(job_id)
 
         try:
             with cookie_service.scope(job.owner):
@@ -650,11 +656,13 @@ class DownloadManager:
     def cancel_all(self, owner: str | None = None) -> int:
         n = 0
         for jid in self._all_job_ids(owner):
-            self.store.transition_job(
+            aborted = self.store.transition_job(
                 jid,
                 {ResolveState.PENDING.value, ResolveState.RESOLVING.value},
                 {"resolve_state": ResolveState.FAILED, "resolve_error": "Cancelled"},
             )
+            if aborted:
+                self._after_settle(jid)
             n += self._apply(jid, self.cancel_item)
         return n
 
@@ -853,6 +861,26 @@ class DownloadManager:
         name = Path(job.folder).name or "download"
         return f"{name}.zip", library_service.zip_entries([(f, f"{name}/{f.name}") for f in done])
 
+    def list_deliveries(self, owner: str | None = None) -> list[DeliveryEntry]:
+        """Server mode: the visitor's ready files / ZIPs ("My downloads"). Personal mode has none (empty list)."""
+        return delivery_service.list_for_owner(owner)
+
+    def extend_delivery(self, job_id: str, owner: str | None = None) -> Delivery:
+        """
+        "Keep longer": extend a ready delivery by one ``SERVER_DELIVERY_TTL_MINUTES`` — once.
+
+        Raises:
+            InvalidRequestError: personal mode (there are no deliveries).
+            NotFoundError: unknown job (or another visitor's), or no ready file any more.
+            ConflictError: already extended.
+        """
+        if not self.server_mode:
+            raise InvalidRequestError("Downloads only expire in server mode")
+        job = self._require_job(job_id, owner)
+        if not delivery_service.is_delivery_folder(job.folder):
+            raise NotFoundError("This download has no prepared file")
+        return delivery_service.extend(job_id)
+
     # ═══════════════════════════ maintenance ═══════════════════════════
 
     def reconcile(self) -> int:
@@ -882,6 +910,7 @@ class DownloadManager:
                     {ResolveState.PENDING.value, ResolveState.RESOLVING.value},
                     {"resolve_state": ResolveState.FAILED, "resolve_error": "Timed out while reading the playlist"},
                 )
+                webhook_service.notify_job(jid)
                 fixed += 1
             for it in self.store.get_items(jid):
                 if (

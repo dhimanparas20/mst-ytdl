@@ -120,6 +120,11 @@ class TestDownloadOptions:
         o = opts(F.MP4, quality="720", subtitles=True)
         assert DownloadOptions.model_validate(o.model_dump(mode="json")) == o
 
+    def test_sponsorblock_defaults_off_and_roundtrips(self):
+        assert opts().sponsorblock is False
+        o = opts(sponsorblock=True)
+        assert DownloadOptions.model_validate(o.model_dump(mode="json")).sponsorblock is True
+
 
 # ───────────────────────── DownloadRequest ─────────────────────────
 

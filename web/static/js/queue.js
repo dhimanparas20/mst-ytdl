@@ -7,9 +7,10 @@
 import { api } from "./api.js";
 import { confirmDialog, copyText, toast, withBusy, initTooltips } from "./ui.js";
 import { fileTrack, isMediaName } from "./player.js";
-import { addSpeedSample, speedAverage } from "./queue-logic.js";
+import { addSpeedSample, deliverySoon, leftText, speedAverage } from "./queue-logic.js";
 import {
   $, $$, esc, htmlToEl, fmtBytes, fmtDuration, fmtEta, setText, setAttr, splitSpeed, tween,
+  maybeCookieBanner,
 } from "./util.js";
 
 const LABEL = {
@@ -19,14 +20,16 @@ const LABEL = {
 // Quick buttons per status. "retry" resumes from the partial file; "restart" starts over and
 // replaces any existing file; "remove" only drops the entry (files stay).
 const ACTIONS = {
-  queued: ["pause", "cancel"], resolving: ["cancel"], downloading: ["pause", "cancel"], processing: ["pause", "cancel"],
+  queued: ["pause", "cancel"], resolving: ["cancel"], downloading: ["pause", "cancel"],   processing: ["cancel"],
   paused: ["resume", "cancel", "restart"], failed: ["retry", "restart", "remove"], cancelled: ["retry", "restart", "remove"],
   partial: ["retry", "restart", "remove"], completed: ["restart", "remove"],
 };
 const BTN = {
   pause: ["pause-fill", "warn", "Pause"], resume: ["play-fill", "ok", "Resume"],
-  cancel: ["x-lg", "bad", "Cancel"], retry: ["arrow-clockwise", "info", "Retry (continue where it stopped)"],
-  restart: ["arrow-repeat", "info", "Restart from scratch / replace the file"], remove: ["x-circle", "bad", "Remove from list"],
+  cancel: ["x-lg", "bad", "Cancel"],
+  retry: ["arrow-clockwise", "info", "Retry — keep partial progress"],
+  restart: ["arrow-repeat", "info", "Restart — replace the file"],
+  remove: ["x-circle", "bad", "Remove from list"],
 };
 const QUICK = Object.keys(BTN);
 const ITEM_QUICK = QUICK.filter((a) => a !== "remove");  // tracks inside a playlist cannot be removed one by one
@@ -34,7 +37,8 @@ const ITEM_QUICK = QUICK.filter((a) => a !== "remove");  // tracks inside a play
 const selected = new Set();      // job ids ticked in select mode
 let selectMode = false;
 const BULK_TEXT = {
-  pause: "Pause", resume: "Resume", cancel: "Cancel", retry: "Retry", restart: "Restart / replace",
+  pause: "Pause", resume: "Resume", cancel: "Cancel",
+  retry: "Retry (keep progress)", restart: "Restart (replace file)",
   remove: "Remove from list", "remove-files": "Remove + delete files",
 };
 const BULK_CONFIRM = {
@@ -83,14 +87,6 @@ function saveUrl(url) {
   const a = document.createElement("a");
   a.href = url; a.download = "";
   document.body.appendChild(a); a.click(); a.remove();
-}
-
-/** "54 min left" for a delivery's expiry. */
-function leftText(expiresAt) {
-  const s = Math.max(0, expiresAt - Date.now() / 1000);
-  if (s < 60) return "expires in under a minute";
-  const m = Math.round(s / 60);
-  return m >= 60 ? `available for ${Math.floor(m / 60)} h ${m % 60} min` : `available for ${m} min`;
 }
 
 // ───────────────────────── helpers ─────────────────────────
@@ -168,7 +164,7 @@ function cardHTML(job) {
     </div>
     <div class="job-error" hidden><i class="bi bi-exclamation-octagon-fill"></i><span></span></div>
     <div class="job-note" hidden></div>
-    <div class="job-delivery" hidden><button type="button" class="btn-grad" data-act="deliver"><i class="bi bi-download"></i><span>Save</span></button><span class="mono d-size"></span><span class="exp"></span></div>
+    <div class="job-delivery" hidden><button type="button" class="btn-grad" data-act="deliver"><i class="bi bi-download"></i><span>Save</span></button><span class="mono d-size"></span><span class="exp"></span><button type="button" class="btn-ghost sm d-extend" data-act="extend" title="Keep this file on the server for another while (once)" hidden><i class="bi bi-hourglass-split"></i><span>Keep longer</span></button></div>
     <div class="job-items" hidden><ul class="items"></ul></div>
   </article>`;
 }
@@ -185,6 +181,7 @@ function refsOf(el) {
     error: q(".job-error"), errorText: q(".job-error span"), note: q(".job-note"),
     items: q(".job-items"), list: q(".items"),
     deliv: q(".job-delivery"), delivLabel: q(".job-delivery [data-act=deliver] span"), delivSize: q(".job-delivery .d-size"), delivExp: q(".job-delivery .exp"),
+    delivBtn: q(".job-delivery [data-act=deliver]"), delivExtend: q(".job-delivery [data-act=extend]"),
     sel: q(".sel-box"),
     btn: Object.fromEntries([...QUICK, "play", "save", "zip"].map((a) => [a, q(`.job-actions > .row > [data-act="${a}"]`)])),
   };
@@ -226,7 +223,10 @@ function updateCard(c, job) {
   if (!single) { setText(r.pl, `${job.total_items} tracks`); r.pl.hidden = false; } else r.pl.hidden = true;
 
   // status pill
-  const label = ctl === "pause" ? "Pausing…" : ctl === "cancel" ? "Cancelling…" : LABEL[st] || st;
+  const label = st === "processing" && ctl === "pause" ? "Finishing conversion…"
+    : ctl === "pause" ? "Pausing…"
+    : ctl === "cancel" ? "Cancelling…"
+    : (single && it0?.stage && st === "processing" ? it0.stage : LABEL[st] || st);
   r.pill.className = `st-pill st-${st}`;
   setText(r.pillText, label);
 
@@ -265,9 +265,11 @@ function updateCard(c, job) {
   else if (!single && st === "failed") err = items.find((i) => i.error)?.error || "All items failed";
   r.error.hidden = !err;
   setText(r.errorText, err);
+  if (err) maybeCookieBanner(err);
   let note = "";
   if (single && it0?.error && ["queued", "paused"].includes(it0.status)) note = it0.error;
-  else if (st === "partial") note = `${(job.counts?.failed || 0) + (job.counts?.cancelled || 0)} of ${job.total_items} did not finish — Retry will try them again.`;
+  else if (st === "partial") note = `${(job.counts?.failed || 0) + (job.counts?.cancelled || 0)} of ${job.total_items} did not finish — Retry keeps progress; Restart replaces files.`;
+  else if (["failed", "cancelled"].includes(st)) note = "Retry keeps partial progress · Restart replaces the file.";
   r.note.hidden = !note;
   setText(r.note, note);
 
@@ -290,7 +292,8 @@ function updateCard(c, job) {
   if (d) {
     setText(r.delivLabel, d.kind === "zip" ? "Save ZIP" : "Save file");
     setText(r.delivSize, fmtBytes(d.size));
-    paintExpiry(r.delivExp, d.expires_at);
+    paintExpiry(r.delivExp, d.expires_at, r.delivBtn);
+    r.delivExtend.hidden = !!d.extended;  // "Keep longer" works once per file
   }
 
   // expander for playlists
@@ -337,13 +340,17 @@ function updateRow(row, it) {
   const running = it.status === "downloading" || it.status === "processing";
   f.bar.className = `pbar thin s-${it.status}${running ? " active" : ""}`;
   f.fill.style.width = `${it.status === "completed" ? 100 : Math.max(0, Math.min(100, it.percent))}%`;
-  const label = it.control === "pause" ? "Pausing…" : it.control === "cancel" ? "Cancelling…" : (it.stage && it.status === "processing" ? it.stage : LABEL[it.status]);
+  const label = it.status === "processing" && it.control === "pause" ? "Finishing conversion…"
+    : it.control === "pause" ? "Pausing…"
+    : it.control === "cancel" ? "Cancelling…"
+    : (it.stage && it.status === "processing" ? it.stage : LABEL[it.status]);
   f.pill.className = `st-pill sm st-${it.status}`;
   setText(f.pt, label);
   setText(f.speed, running && it.speed ? `${fmtBytes(it.speed)}/s` : "");
   setText(f.eta, running && it.eta != null ? `ETA ${fmtEta(it.eta)}` : "");
   setText(f.dur, it.duration ? fmtDuration(it.duration) : "");
   setText(f.err, ["failed", "queued", "paused"].includes(it.status) && it.error ? it.error : "");
+  if (it.error) maybeCookieBanner(it.error);
   const allowed = new Set(ACTIONS[it.status] || []);
   ITEM_QUICK.forEach((a) => { f.btn[a].hidden = !allowed.has(a) || (!!it.control && a === "pause"); });
   const hasFile = it.status === "completed" && it.filepath;
@@ -351,9 +358,12 @@ function updateRow(row, it) {
   f.btn.save.hidden = !hasFile;
 }
 
-function paintExpiry(el, expiresAt) {
+/** Expiry text; inside the last minutes it turns amber and the Save button pulses (``btn``). */
+function paintExpiry(el, expiresAt, btn) {
+  const soon = deliverySoon(expiresAt);
   setText(el, `· ${leftText(expiresAt)}`);
-  el.classList.toggle("soon", expiresAt - Date.now() / 1000 < 600);
+  el.classList.toggle("soon", soon);
+  if (btn) btn.classList.toggle("soon", soon);
 }
 
 async function loadDetail(c) {
@@ -423,8 +433,37 @@ function maybeAutoSave(job, prev) {
   if (!ready) return;
   autoSaved.add(job.job_id);
   try { sessionStorage.setItem(AUTO_KEY, JSON.stringify([...autoSaved].slice(-200))); } catch { /* ignore */ }
-  saveUrl(api.jobFileUrl(job.job_id));
-  toast(job.title || "Your download", "ok", { title: job.delivery?.kind === "zip" || job.deliver_zip ? "ZIP ready — saving" : "Saving to your device", ms: 3500 });
+  autoSave(job);
+}
+
+/**
+ * Start the browser download of a finished job. Server mode first probes the file endpoint (a 1-byte Range
+ * request), so a refusal (expired, not ready, server down) is reported instead of silently saving nothing.
+ * The job stays marked as auto-saved either way — the pulsing Save button is the manual way back.
+ */
+async function autoSave(job) {
+  const url = api.jobFileUrl(job.job_id);
+  const zip = job.delivery?.kind === "zip" || job.deliver_zip;
+  try {
+    if (serverMode) await probeFile(url);
+    saveUrl(url);
+    toast(job.title || "Your download", "ok", { title: zip ? "ZIP ready — saving" : "Saving to your device", ms: 3500 });
+  } catch (e) {
+    const left = job.delivery ? ` It stays on the server ${leftText(job.delivery.expires_at).replace("available for ", "for ")}.` : "";
+    toast(`${e.message || "The browser blocked it"}. Press Save on “${job.title || "the download"}” to try again.${left}`, "warn", { title: "Automatic save did not start", ms: 12000 });
+  }
+}
+
+/** Throws with a readable message unless the server will hand the file over right now. */
+async function probeFile(url) {
+  let res;
+  try { res = await fetch(url, { headers: { Range: "bytes=0-0" } }); }
+  catch { throw new Error("Cannot reach the server"); }
+  res.body?.cancel?.().catch?.(() => {});
+  if (res.ok) return;  // 200 / 206
+  let detail = "";
+  try { detail = (await res.json()).detail; } catch { /* not JSON */ }
+  throw new Error(typeof detail === "string" && detail ? detail : `The server answered ${res.status}`);
 }
 const lastDelivery = new Map();
 
@@ -492,7 +531,7 @@ function renderFilterActions() {
   const bar = $("#filter-actions");
   const ids = visibleCards().map((c) => c.id);
   const ctx = {
-    failed: { cls: "bad", icon: "exclamation-triangle-fill", text: (n) => `${n} download${n === 1 ? "" : "s"} did not finish`, acts: [["retry", "Retry all", "arrow-clockwise"], ["restart", "Restart all", "arrow-repeat"], ["remove", "Remove all", "x-circle"]] },
+    failed: { cls: "bad", icon: "exclamation-triangle-fill", text: (n) => `${n} download${n === 1 ? "" : "s"} did not finish — Retry keeps progress · Restart replaces`, acts: [["retry", "Retry all", "arrow-clockwise"], ["restart", "Restart all", "arrow-repeat"], ["remove", "Remove all", "x-circle"]] },
     paused: { cls: "warn", icon: "pause-circle-fill", text: (n) => `${n} paused`, acts: [["resume", "Resume all", "play-fill"], ["cancel", "Cancel all", "x-lg"]] },
     completed: { cls: "ok", icon: "check2-circle", text: (n) => `${n} finished`, acts: [["restart", "Re-download all", "arrow-repeat"], ["remove", "Clear from list", "x-circle"]] },
     active: { cls: "", icon: "cloud-download", text: (n) => `${n} running`, acts: [["pause", "Pause these", "pause-fill"], ["cancel", "Cancel these", "x-lg"]] },
@@ -724,6 +763,15 @@ async function onClick(e) {
         autoSaved.add(c.id);
         saveUrl(api.jobFileUrl(c.id));
         break;
+      case "extend":
+        await withBusy(btn, async () => {
+          const d = await api.extendDelivery(c.id);
+          c.job.delivery = { ...c.job.delivery, ...d };
+          updateCard(c, c.job);
+          window.dispatchEvent(new CustomEvent("deliveries-changed"));
+          toast(`${leftText(d.expires_at).replace("available for", "Now available for")}`, "ok", { title: "Kept longer", ms: 3200 });
+        });
+        break;
       case "remove":
         await api.remove(c.id, false); toast("Removed from list", "info", { ms: 2200 });
         break;
@@ -789,7 +837,7 @@ export function initQueue() {
   applyFilter();
   setInterval(() => {
     if (!serverMode) return;
-    for (const c of cards.values()) if (!c.refs.deliv.hidden && c.job.delivery) paintExpiry(c.refs.delivExp, c.job.delivery.expires_at);
+    for (const c of cards.values()) if (!c.refs.deliv.hidden && c.job.delivery) paintExpiry(c.refs.delivExp, c.job.delivery.expires_at, c.refs.delivBtn);
   }, 30000);
   window.addEventListener("resize", () => { if (!$("#panel-queue").hidden) drawSpark(); });
 }

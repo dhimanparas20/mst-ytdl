@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  compressSelection, esc, extractUrls, fmtBytes, fmtDuration, fmtEta, fmtSpeed, parseSelection, splitSpeed,
+  compressSelection, cookieChipState, esc, extractUrls, fmtBytes, fmtDuration, fmtEta, fmtSpeed, parseSelection, splitSpeed,
 } from "../static/js/util.js";
 
 test("speed is shown in bytes/s and scales B → KB → MB → GB (never bits)", () => {
@@ -84,4 +84,29 @@ test("extractUrls keeps only YouTube / YouTube Music links", () => {
 test("esc neutralises HTML", () => {
   assert.equal(esc(`<img src=x onerror="alert('x')">&`), "&lt;img src=x onerror=&quot;alert(&#39;x&#39;)&quot;&gt;&amp;");
   assert.equal(esc(null), "");
+});
+
+test("cookie chip: none / not signed in / signed in / expiring / expired", () => {
+  const now = Date.parse("2026-01-01T00:00:00Z");
+  const day = 86400000;
+  const base = { loaded: true, source: "file", count: 5, login: true, warnings: [], expires_at: null };
+  assert.equal(cookieChipState(null, now), null);
+  assert.deepEqual(cookieChipState({ loaded: false }, now).text, "Cookies · none");
+  assert.equal(cookieChipState({ loaded: false }, now).tone, "none");
+  assert.equal(cookieChipState({ ...base, login: false }, now).text, "Cookies · not signed in");
+  assert.equal(cookieChipState({ ...base, source: "browser", count: 0, browser: "firefox" }, now).text, "Cookies · browser");
+  assert.deepEqual(
+    (({ text, tone }) => ({ text, tone }))(cookieChipState(base, now)),
+    { text: "Cookies · signed in", tone: "ok" },
+  );
+  const far = cookieChipState({ ...base, expires_at: new Date(now + 90 * day).toISOString() }, now);
+  assert.equal(far.text, "Cookies · signed in");
+  const soon = cookieChipState({ ...base, expires_at: new Date(now + 10 * day + 1000).toISOString() }, now);
+  assert.equal(soon.text, "Cookies · signed in · 10 d left");
+  assert.equal(soon.tone, "ok");
+  const imminent = cookieChipState({ ...base, expires_at: new Date(now + 2 * day).toISOString() }, now);
+  assert.equal(imminent.tone, "warn");
+  assert.equal(cookieChipState({ ...base, expires_at: new Date(now + 3600000).toISOString() }, now).text, "Cookies · signed in · <1 d left");
+  assert.equal(cookieChipState({ ...base, expires_at: new Date(now - day).toISOString() }, now).text, "Cookies · expired");
+  assert.equal(cookieChipState({ ...base, warnings: ["x"] }, now).tone, "warn");
 });

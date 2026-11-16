@@ -21,8 +21,8 @@ from api.schemas import (
     RejectedUrl,
     SubmitResponse,
 )
-from models import CartRequest, DownloadItem, DownloadRequest, DownloadStatus, JobView
-from services import analytics, download_manager
+from models import CartRequest, DeliveryEntry, DeliveryView, DownloadItem, DownloadRequest, DownloadStatus, JobView
+from services import analytics, delivery_service, download_manager
 
 router = APIRouter(tags=["downloads"])
 
@@ -72,6 +72,24 @@ def download_job_file(job_id: str, who: Owner):
     if isinstance(payload, Path):
         return FileResponse(payload, filename=name, content_disposition_type="attachment")
     return StreamingResponse(payload, media_type="application/zip", headers={"Content-Disposition": attachment(name)})
+
+
+@router.get("/deliveries", response_model=list[DeliveryEntry])
+def list_deliveries(who: Owner) -> list[DeliveryEntry]:
+    """
+    "My downloads" (server mode): this visitor's ready files / ZIPs and when each is deleted,
+    soonest first. Personal mode has no deliveries — the list is empty.
+    """
+    return download_manager.list_deliveries(owner=who)
+
+
+@router.post("/deliveries/{job_id}/extend", response_model=DeliveryView)
+def extend_delivery(job_id: str, who: Owner) -> DeliveryView:
+    """
+    "Keep longer": push a ready file's deletion back by one ``SERVER_DELIVERY_TTL_MINUTES``, once
+    (404: not yours / gone, 409: already extended, 422: personal mode).
+    """
+    return delivery_service.view(download_manager.extend_delivery(job_id, owner=who))
 
 
 @router.post("/downloads/{job_id}/pause", response_model=JobView)

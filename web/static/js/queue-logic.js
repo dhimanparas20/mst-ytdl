@@ -159,6 +159,24 @@ export function addSpeedSample(stats, speed) {
   return { sum: st.sum + speed, n: st.n + 1, peak: Math.max(st.peak, speed) };
 }
 
+/** A delivery is "urgent" (pulse the Save button, warn colour) when it is deleted within this many seconds. */
+export const SOON_SECONDS = 600;
+
+/**
+ * Is a server-mode delivery about to be deleted?
+ * @param {number} expiresAt epoch seconds
+ * @param {number} [nowSec] epoch seconds (injectable for tests)
+ */
+export const deliverySoon = (expiresAt, nowSec = Date.now() / 1000) => expiresAt - nowSec < SOON_SECONDS;
+
+/** "available for 54 min" / "expires in under a minute" for a delivery's expiry. */
+export function leftText(expiresAt, nowSec = Date.now() / 1000) {
+  const s = Math.max(0, expiresAt - nowSec);
+  if (s < 60) return "expires in under a minute";
+  const m = Math.round(s / 60);
+  return m >= 60 ? `available for ${Math.floor(m / 60)} h ${m % 60} min` : `available for ${m} min`;
+}
+
 /** Average speed of a stats object (0 when nothing was downloaded yet). */
 export const speedAverage = (stats) => (stats && stats.n ? stats.sum / stats.n : 0);
 

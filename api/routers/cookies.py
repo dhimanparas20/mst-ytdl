@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from api.deps import Owner, admin_only, rate
 from api.schemas import CookieUpload
 from models import CookieStatus, CookieTestResult
-from services import InvalidRequestError, cookie_service, stream_service
+from services import InvalidRequestError, cache_service, cookie_service, stream_service
 
 router = APIRouter(tags=["cookies"])
 
@@ -63,6 +63,7 @@ def cookies_save(body: CookieUpload) -> CookieStatus:
     """Validate and store pasted Netscape cookies; takes effect immediately (no restart)."""
     status = cookie_service.save(body.text)
     stream_service.clear()  # cached lookups were made with the old cookies
+    cache_service.clear_json()
     return status
 
 
@@ -71,6 +72,7 @@ def cookies_clear() -> CookieStatus:
     """Remove the stored cookies file."""
     status = cookie_service.clear()
     stream_service.clear()
+    cache_service.clear_json()
     return status
 
 

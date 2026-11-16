@@ -93,6 +93,10 @@ class TestResolveOptions:
         o = mgr.resolve_options(req(format="mp4", quality="720", embed_metadata=False, embed_thumbnail=False, subtitles=True, speed_limit=5))
         assert (o.quality, o.embed_metadata, o.embed_thumbnail, o.subtitles, o.speed_limit) == ("720", False, False, True, 5)
 
+    def test_sponsorblock_defaults_off_and_is_passed_through(self):
+        assert mgr.resolve_options(req()).sponsorblock is False
+        assert mgr.resolve_options(req(sponsorblock=True)).sponsorblock is True
+
     def test_overwrite_defaults_off_and_is_passed_through(self):
         assert mgr.resolve_options(req()).overwrite is False
         assert mgr.resolve_options(req(overwrite=True)).overwrite is True

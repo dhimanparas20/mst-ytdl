@@ -9,6 +9,7 @@ from models.download import (
     CartEntry,
     CartRequest,
     Delivery,
+    DeliveryEntry,
     DeliveryView,
     DownloadItem,
     DownloadJob,
@@ -43,6 +44,13 @@ from models.stream import (
     SubtitleSource,
     SubtitleTrack,
 )
+from models.subscription import (
+    Subscription,
+    SubscriptionCheck,
+    SubscriptionKind,
+    SubscriptionRequest,
+    SubscriptionView,
+)
 
 __all__ = [
     "AccountFeed",
@@ -55,6 +63,7 @@ __all__ = [
     "CartEntry",
     "CartRequest",
     "Delivery",
+    "DeliveryEntry",
     "DeliveryKind",
     "DeliveryView",
     "OptionFields",
@@ -82,5 +91,10 @@ __all__ = [
     "StreamInfo",
     "SubtitleSource",
     "SubtitleTrack",
+    "Subscription",
+    "SubscriptionCheck",
+    "SubscriptionKind",
+    "SubscriptionRequest",
+    "SubscriptionView",
     "derive_job_status",
 ]

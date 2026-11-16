@@ -178,6 +178,19 @@ def test_saving_clears_the_stream_cache(client, monkeypatch):
     assert len(cleared) == 2
 
 
+def test_changing_cookies_drops_the_meta_cache(client, monkeypatch):
+    """Cached previews / account feeds were read with the old cookies (personal mode shares one cache scope)."""
+    from services import cache_service
+
+    cache_service.set_json("preview", {"title": "x"}, "u")
+    assert cache_service.get_json("preview", "u") == {"title": "x"}
+    client.put("/api/cookies", json={"text": GOOD})
+    assert cache_service.get_json("preview", "u") is None
+    cache_service.set_json("preview", {"title": "x"}, "u")
+    client.delete("/api/cookies")
+    assert cache_service.get_json("preview", "u") is None
+
+
 # ───────────── live test (yt-dlp scripted) ─────────────
 class _OkYDL:
     def __init__(self, opts):

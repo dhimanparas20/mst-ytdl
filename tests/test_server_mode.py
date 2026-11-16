@@ -524,6 +524,110 @@ class TestConfig:
         assert cfg["downloads_dir"] == str(downloads_dir)
 
 
+# ───────────────────────── my downloads / keep longer / maintenance ─────────────────────────
+
+
+class TestMyDownloads:
+    def test_lists_only_the_visitors_ready_files(self, app, monkeypatch):
+        monkeypatch.setattr(metadata_service, "expand_playlist", lambda u: PlaylistInfo("Road Trip", "DJ", None, _entries(2)))
+        a, b = visitor(app), visitor(app)
+        single = post(a).json()["jobs"][0]["job_id"]
+        zipped = post(a, [PLAYLIST]).json()["jobs"][0]["job_id"]
+        post(b)
+        rows = {r["job_id"]: r for r in a.get("/api/deliveries").json()}
+        assert set(rows) == {single, zipped}
+        assert rows[single]["kind"] == "file" and rows[single]["name"] == "Fake Song.mp3" and rows[single]["size"] == 1000
+        assert rows[single]["status"] == "completed" and rows[single]["extended"] is False and rows[single]["title"]
+        assert rows[zipped]["kind"] == "zip" and rows[zipped]["name"] == "Road Trip.zip"
+        assert rows[single]["expires_at"] == pytest.approx(time.time() + 3600, abs=30)
+        assert len(b.get("/api/deliveries").json()) == 1
+        assert not set(rows) & {r["job_id"] for r in b.get("/api/deliveries").json()}  # never another visitor's
+
+    def test_list_is_soonest_first_and_skips_expired_failed_and_missing(self, app, downloads_dir):
+        c = visitor(app)
+        late, soon, gone, expired = (post(c).json()["jobs"][0]["job_id"] for _ in range(4))
+        d = delivery_service.get(soon)
+        delivery_service._save(d.model_copy(update={"expires_at": d.expires_at - 1800}))
+        d = delivery_service.get(expired)
+        delivery_service._save(d.model_copy(update={"expires_at": time.time() - 5}))  # the sweep has not run yet
+        (downloads_dir / ".deliveries" / gone / "Fake Song.mp3").unlink()
+        FakeYDL.fail_with = ValueError("nope")
+        post(c, format="opus")  # failed → NONE record (another format: the mp3 is in the media cache)
+        assert [r["job_id"] for r in c.get("/api/deliveries").json()] == [soon, late]
+
+    def test_extend_adds_one_ttl_once(self, app, fake_redis):
+        c = visitor(app)
+        jid = post(c).json()["jobs"][0]["job_id"]
+        before = delivery_service.get(jid).expires_at
+        r = c.post(f"/api/deliveries/{jid}/extend")
+        assert r.status_code == 200 and r.json()["extended"] is True
+        assert r.json()["expires_at"] == pytest.approx(before + 3600)
+        assert fake_redis.zscore(delivery_service._index, jid) == pytest.approx(before + 3600)  # the sweep honours it
+        assert fake_redis.ttl(delivery_service._key(jid)) > 3600
+        view = c.get(f"/api/downloads/{jid}").json()["delivery"]
+        assert view["extended"] is True and view["expires_at"] == pytest.approx(before + 3600)
+        assert c.get("/api/deliveries").json()[0]["extended"] is True
+        again = c.post(f"/api/deliveries/{jid}/extend")
+        assert again.status_code == 409
+        assert delivery_service.get(jid).expires_at == pytest.approx(before + 3600)  # unchanged by the refusal
+
+    def test_extended_delivery_survives_the_original_deadline(self, app):
+        c = visitor(app)
+        jid = post(c).json()["jobs"][0]["job_id"]
+        c.post(f"/api/deliveries/{jid}/extend")
+        assert delivery_service.sweep(now=time.time() + 3601)["expired"] == 0
+        assert c.get(f"/api/downloads/{jid}/file").status_code == 200
+        assert delivery_service.sweep(now=time.time() + 7201)["expired"] == 1
+
+    def test_extend_is_owner_checked_and_needs_a_ready_file(self, app, dispatcher):
+        a, b = visitor(app), visitor(app)
+        jid = post(a).json()["jobs"][0]["job_id"]  # the fake dispatcher never runs it: no delivery yet
+        assert a.post(f"/api/deliveries/{jid}/extend").status_code == 404
+        assert a.post("/api/deliveries/" + "0" * 12 + "/extend").status_code == 404
+        assert b.post(f"/api/deliveries/{jid}/extend").status_code == 404
+
+    def test_other_visitor_cannot_extend(self, app):
+        a, b = visitor(app), visitor(app)
+        jid = post(a).json()["jobs"][0]["job_id"]
+        before = delivery_service.get(jid).expires_at
+        assert b.post(f"/api/deliveries/{jid}/extend").status_code == 404
+        assert delivery_service.get(jid).expires_at == before and not delivery_service.get(jid).extended
+
+    def test_expired_or_failed_delivery_cannot_be_extended(self, app):
+        c = visitor(app)
+        jid = post(c).json()["jobs"][0]["job_id"]
+        d = delivery_service.get(jid)
+        delivery_service._save(d.model_copy(update={"expires_at": time.time() - 1}))
+        assert c.post(f"/api/deliveries/{jid}/extend").status_code == 404
+        FakeYDL.fail_with = ValueError("nope")
+        bad = post(c, format="opus").json()["jobs"][0]["job_id"]  # another format: the mp3 is in the media cache
+        assert c.post(f"/api/deliveries/{bad}/extend").status_code == 404
+
+    def test_personal_mode_has_no_deliveries(self, downloads_dir, fake_ydl):
+        c = TestClient(create_app())
+        assert c.get("/api/deliveries").json() == []
+        jid = c.post("/api/downloads", json={"urls": [WATCH]}).json()["jobs"][0]["job_id"]
+        assert c.post(f"/api/deliveries/{jid}/extend").status_code == 422
+
+
+class TestMaintenanceConfig:
+    def test_config_exposes_maintenance_in_server_mode(self, app, server, monkeypatch):
+        cfg = visitor(app).get("/api/config").json()
+        assert cfg["maintenance"] is False and cfg["maintenance_message"] == ""
+        monkeypatch.setattr(server, "maintenance", True)
+        monkeypatch.setattr(server, "maintenance_message", "Back at noon")
+        c = visitor(app)
+        cfg = c.get("/api/config").json()
+        assert cfg["maintenance"] is True and cfg["maintenance_message"] == "Back at noon"
+        r = post(c)  # the banner is not cosmetic: new downloads are refused
+        assert r.status_code == 503 and "Back at noon" in r.json()["detail"]
+
+    def test_personal_mode_never_reports_maintenance(self, downloads_dir, monkeypatch):
+        monkeypatch.setattr(get_settings().server, "maintenance", True)  # ignored outside server mode
+        cfg = TestClient(create_app()).get("/api/config").json()
+        assert cfg["maintenance"] is False and cfg["maintenance_message"] == ""
+
+
 # ───────────────────────── visitor cookies ─────────────────────────
 
 FUTURE = int(time.time()) + 86_400 * 200

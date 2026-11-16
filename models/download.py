@@ -45,6 +45,7 @@ class DownloadOptions(BaseModel):
     speed_limit: int | None = Field(default=None, ge=1)  # bytes/sec per download
     overwrite: bool = False  # re-download even if the output file already exists
     numbering: bool = True  # playlist files get a "01 - " prefix (off = just the title)
+    sponsorblock: bool = False  # cut sponsor / self-promo / interaction segments (SponsorBlock)
 
     @field_validator("quality", mode="before")
     @classmethod
@@ -90,6 +91,7 @@ class OptionFields(BaseModel):
     subtitle_langs: list[str] = Field(default_factory=lambda: ["en"])
     speed_limit: int | None = Field(default=None, ge=1)
     overwrite: bool = False
+    sponsorblock: bool = False  # remove sponsor / self-promo / interaction segments
     numbering: bool | None = None  # "01 - " prefix on playlist files; None = DL_PLAYLIST_NUMBERING
     # Override the destination folder name (sanitised, relative to downloads/); ignored in server mode
     folder: str | None = Field(default=None, max_length=120)
@@ -192,6 +194,7 @@ class Delivery(BaseModel):
     signature: str = ""  # which finished files it was built from (a retry that adds files → rebuild)
     ready_at: float = 0.0
     expires_at: float = 0.0
+    extended: bool = False  # "Keep longer" was used: the TTL is extended once only
 
 
 class DeliveryView(BaseModel):
@@ -201,6 +204,20 @@ class DeliveryView(BaseModel):
     name: str
     size: int
     expires_at: float
+    extended: bool = False
+
+
+class DeliveryEntry(BaseModel):
+    """One row of "My downloads" (``GET /api/deliveries``): a visitor's file / ZIP that is still on the server."""
+
+    job_id: str
+    title: str
+    kind: DeliveryKind
+    name: str
+    size: int
+    expires_at: float
+    extended: bool = False
+    status: DownloadStatus  # derived job status (completed / partial)
 
 
 class DownloadItem(BaseModel):

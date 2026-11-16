@@ -82,6 +82,9 @@ class DownloadSettings(BaseSettings):
     proxy: str | None = None
     # Lyrics provider for the player (LRCLIB API); empty = lyrics off. Only artist / title / duration are sent.
     lyrics_url: str | None = "https://lrclib.net"
+    # One HTTP POST (JSON) per finished job — completed / failed / partial / cancelled. Works in both modes;
+    # ntfy topic URLs work too. Empty = off.
+    webhook_url: str | None = None
     allowed_hosts: list[str] = [
         "youtube.com",
         "www.youtube.com",
@@ -113,7 +116,7 @@ class DownloadSettings(BaseSettings):
         return parse_size(v)
 
     @field_validator(
-        "ffmpeg_path", "cookies_file", "cookies_from_browser", "proxy", "default_folder", "lyrics_url", mode="before"
+        "ffmpeg_path", "cookies_file", "cookies_from_browser", "proxy", "default_folder", "lyrics_url", "webhook_url", mode="before"
     )
     @classmethod
     def _blank_is_none(cls, v):
@@ -155,9 +158,10 @@ class ServerSettings(BaseSettings):
     delivery_ttl_minutes: int = Field(default=60, ge=1)
     max_active_jobs: int = Field(default=5, ge=1)  # unfinished downloads per visitor
     max_job_items: int = Field(default=100, ge=1)  # tracks per playlist / cart
+    max_subscriptions: int = Field(default=20, ge=1)  # followed channels / playlists per visitor (personal mode: fixed cap of 100)
     min_free_mb: int = Field(default=2048, ge=0)  # refuse new downloads below this much free disk
     rate_limit_per_minute: int = Field(default=60, ge=1)  # info / search / submit calls per IP
-    cache_minutes: int = Field(default=10, ge=0)  # preview / search / playlist cache (0 = off)
+    cache_minutes: int = Field(default=10, ge=0)  # preview / search / playlist cache, both modes (0 = off)
     visitor_cookie_hours: int = Field(default=24, ge=1)  # how long a visitor's own pasted cookies are kept
     connect_enabled: bool = True  # "Sign in" with the browser extension (SERVER_CONNECT_ENABLED); pasting cookies always works
     share_server_cookies: bool = False  # let visitors use the server's (admin's) cookies — off: their own or none

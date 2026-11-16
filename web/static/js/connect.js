@@ -3,7 +3,7 @@
 
 import { api } from "./api.js";
 import { toast, withBusy } from "./ui.js";
-import { $ } from "./util.js";
+import { $, $$ } from "./util.js";
 
 // After Google sign-in, land on robots.txt (not the YouTube homepage) so the session is quieter and easier to keep from rotating.
 const YT_ROBOTS = "https://www.youtube.com/robots.txt";
@@ -18,10 +18,21 @@ const say = (html, cls = "") => { const el = $("#cn-status"); el.className = `sm
 
 function stop() { clearTimeout(timer); timer = null; }
 
+function setStep(n) {
+  const step = Math.max(1, Math.min(4, Number(n) || 1));
+  $$("#cn-stepper .cn-step").forEach((el) => el.classList.toggle("active", Number(el.dataset.step) === step));
+  $$("#cn-steps .cn-pane").forEach((el) => {
+    const pane = Number(el.dataset.pane);
+    // phone: only the code pane; desktop: active step pane
+    el.hidden = isPhone() ? pane !== 3 : pane !== step;
+  });
+}
+
 function reset() {
   stop();
   $("#cn-steps").hidden = true;
   $("#cn-go").hidden = false;
+  setStep(1);
   say("");
 }
 
@@ -53,6 +64,7 @@ async function start(btn) {
     $("#cn-server").textContent = r.server;
     $("#cn-steps").hidden = false;
     btn.hidden = true;
+    setStep(isPhone() ? 3 : 1);
     say(`<span class="spinner-border spinner-border-sm me-1"></span> Waiting for the extension…`);
     poll(r.code, Date.now() + r.expires_in * 1000);
   } catch (e) {
@@ -73,8 +85,15 @@ export function initConnect() {
   });
   modal.addEventListener("hidden.bs.modal", stop);
   $("#cn-go").addEventListener("click", (e) => start(e.currentTarget));
-  $("#cn-open").href = GOOGLE_SIGN_IN;
-  $("#cn-copy").addEventListener("click", async () => {
+  const open = $("#cn-open");
+  if (open) open.href = GOOGLE_SIGN_IN;
+  $("#cn-steps")?.addEventListener("click", (e) => {
+    const next = e.target.closest("[data-cn-next]");
+    if (next) setStep(next.dataset.cnNext);
+    const step = e.target.closest("#cn-stepper [data-step]");
+    if (step) setStep(step.dataset.step);
+  });
+  $("#cn-copy")?.addEventListener("click", async () => {
     try { await navigator.clipboard.writeText($("#cn-code").textContent); toast("Code copied.", "ok", { ms: 1500 }); } catch { /* clipboard blocked */ }
   });
 }

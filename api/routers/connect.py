@@ -11,8 +11,8 @@ from fastapi.responses import Response
 
 from api.deps import Owner, rate
 from api.schemas import ConnectUpload
-from configs import BASE_DIR
-from services import UnavailableError, connect_service, stream_service
+from configs import BASE_DIR, get_settings
+from services import UnavailableError, cache_service, connect_service, stream_service
 
 router = APIRouter(tags=["connect"])
 
@@ -60,4 +60,6 @@ def connect_submit(code: str, body: ConnectUpload) -> dict:
     """The extension's upload. The code is the only credential (single use, 10 minutes)."""
     out = connect_service.submit(code, body.text)
     stream_service.clear()  # cached lookups were made with the old cookies
+    if not get_settings().server.mode:  # server mode: caches are per visitor (cookie_scope_tag), keep the shared ones
+        cache_service.clear_json()
     return out

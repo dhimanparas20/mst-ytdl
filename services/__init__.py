@@ -32,6 +32,8 @@ from services.metadata import MetadataService, metadata_service
 from services.runtime import RuntimeService, SlotLimiter, runtime_service, slot_limiter
 from services.store import JobStore, job_store
 from services.streaming import MediaStream, StreamService, stream_service
+from services.subscriptions import SubscriptionService, subscription_service
+from services.webhook import WebhookService, webhook_service
 
 __all__ = [
     "ConnectService",
@@ -72,6 +74,8 @@ __all__ = [
     "MediaStream",
     "NotFoundError",
     "StreamService",
+    "SubscriptionService",
+    "subscription_service",
     "UpstreamError",
     "stream_service",
     "RuntimeService",
@@ -86,4 +90,6 @@ __all__ = [
     "runtime_service",
     "set_dispatcher",
     "slot_limiter",
+    "WebhookService",
+    "webhook_service",
 ]

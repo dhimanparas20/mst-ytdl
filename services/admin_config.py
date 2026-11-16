@@ -60,6 +60,7 @@ KNOBS: tuple[Knob, ...] = (
          "speed", 0, None, server_only=True),
     Knob("server.max_active_jobs", "Hard limits", "Unfinished downloads per visitor", "", "int", 1, 1000, server_only=True),
     Knob("server.max_job_items", "Hard limits", "Tracks per playlist / cart", "", "int", 1, 5000, server_only=True),
+    Knob("server.max_subscriptions", "Hard limits", "Subscriptions per visitor", "Followed channels / playlists.", "int", 1, 1000, server_only=True),
     Knob("download.max_playlist_items", "Hard limits", "Playlist entries read", "Only the first N entries of a playlist are listed.", "int", 1, 5000),
     Knob("server.rate_limit_per_minute", "Hard limits", "Requests per IP per minute", "Preview / search / submit.", "int", 1, 10000, server_only=True),
     Knob("server.min_free_mb", "Hard limits", "Minimum free disk (MB)", "New downloads are refused below this.", "int", 0, 10_000_000, server_only=True),

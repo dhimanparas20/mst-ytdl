@@ -32,11 +32,24 @@
       <div class="ms-auto flex items-center gap-2">
         <span id="mode-chip" class="tag mode-chip" tabindex="0" data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="bottom" title="Mode"><i class="bi bi-laptop"></i><span class="d-none d-md-inline" id="mode-text">Local mode</span></span>
         <span id="live-chip" class="tag" data-bs-toggle="tooltip" title="Live updates"><span class="live-dot off" id="live-dot"></span><span class="d-none d-sm-inline" id="live-text">connecting</span></span>
+        <button id="cookie-chip" class="tag cookie-chip none" type="button" hidden data-bs-toggle="tooltip" data-bs-placement="bottom" title="YouTube cookies"><i class="bi bi-key-fill"></i><span class="d-none d-lg-inline" id="cookie-chip-text">Cookies</span></button>
         <button id="health-pill" class="health" type="button" data-bs-toggle="tooltip" title="Checking…"><span class="dot"></span><span class="h-text">Checking</span></button>
         <button id="open-cart" class="btn-icon cart-btn" type="button" aria-label="Download cart" data-bs-toggle="tooltip" title="Download cart"><i class="bi bi-bag-fill"></i><span class="cart-count" id="cart-count">0</span></button>
         <button id="open-settings" class="btn-icon" type="button" aria-label="Settings" data-bs-toggle="tooltip" title="Settings"><i class="bi bi-sliders2"></i></button>
       </div>
     </header>
+
+    <div id="maint-banner" class="cookie-banner maint-banner glass" hidden role="status">
+      <i class="bi bi-cone-striped" aria-hidden="true"></i>
+      <div class="cookie-banner-body"><b>New downloads are paused</b><div class="faint" id="maint-banner-text"></div></div>
+    </div>
+
+    <div id="cookie-banner" class="cookie-banner glass" hidden role="status">
+      <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+      <div class="cookie-banner-body"><b>YouTube cookies need attention</b><div class="faint" id="cookie-banner-text"></div></div>
+      <button type="button" class="btn-grad sm" id="cookie-banner-fix"><i class="bi bi-key-fill"></i>Fix cookies</button>
+      <button type="button" class="btn-icon sm" id="cookie-banner-dismiss" aria-label="Dismiss"><i class="bi bi-x-lg"></i></button>
+    </div>
 
     <div class="layout">
       <!-- ═════════ composer ═════════ -->
@@ -62,6 +75,7 @@
               <button id="paste-btn" class="btn-icon sm paste-btn" type="button" aria-label="Paste from clipboard" data-bs-toggle="tooltip" title="Paste"><i class="bi bi-clipboard"></i></button>
             </div>
             <div id="url-hint" class="url-hint"></div>
+            <div id="url-chips" class="url-chips" hidden></div>
             <div id="amb-banner" class="amb-banner mt-2" hidden></div>
             <div id="preview"></div>
           </div>
@@ -111,6 +125,7 @@
               <div class="opt"><div><div class="opt-t">Embed tags</div><div class="opt-d">Title, artist, album, chapters</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-meta"></div></div>
               <div class="opt" id="opt-subs"><div><div class="opt-t">Subtitles</div><div class="opt-d">Download and embed (video only)</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-subs"></div></div>
               <div class="px-2 pb-2" id="subs-langs" hidden><input id="o-langs" class="form-control" placeholder="Languages, e.g. en, hi, es" value="en" style="padding:8px 12px"></div>
+              <div class="opt" id="opt-sb"><div><div class="opt-t">Skip sponsors</div><div class="opt-d">Cut sponsor, self-promo and interaction reminders (SponsorBlock)</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-sb"></div></div>
               <div class="opt" id="opt-num"><div><div class="opt-t">Number playlist tracks</div><div class="opt-d" id="opt-num-d">Files named “01 - Title”; off = just “Title”</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-num"></div></div>
               <div class="opt local-only"><div><div class="opt-t">Overwrite existing</div><div class="opt-d">Re-download even if the file exists</div></div><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="o-over"></div></div>
               <div class="px-2 py-2">
@@ -182,11 +197,25 @@
             </div>
             <div class="ms-auto flex flex-wrap gap-2">
               <button class="btn-ghost sm" id="select-toggle" type="button" aria-pressed="false"><i class="bi bi-check2-square"></i>Select</button>
-              <button class="btn-ghost sm" data-q="pause-all"><i class="bi bi-pause-fill"></i>Pause all</button>
-              <button class="btn-ghost sm" data-q="resume-all"><i class="bi bi-play-fill"></i>Resume all</button>
-              <button class="btn-ghost sm" data-q="retry-failed"><i class="bi bi-arrow-clockwise"></i>Retry failed</button>
-              <button class="btn-ghost sm danger" data-q="cancel-all"><i class="bi bi-x-lg"></i>Cancel all</button>
-              <button class="btn-ghost sm danger" data-q="clear-finished"><i class="bi bi-trash3"></i>Clear finished</button>
+              <!-- bulk globals: inline buttons on desktop, collapsed into "Manage…" on small screens -->
+              <div class="q-globals flex flex-wrap gap-2">
+                <button class="btn-ghost sm" data-q="pause-all"><i class="bi bi-pause-fill"></i>Pause all</button>
+                <button class="btn-ghost sm" data-q="resume-all"><i class="bi bi-play-fill"></i>Resume all</button>
+                <button class="btn-ghost sm" data-q="retry-failed"><i class="bi bi-arrow-clockwise"></i>Retry failed</button>
+                <button class="btn-ghost sm danger" data-q="cancel-all"><i class="bi bi-x-lg"></i>Cancel all</button>
+                <button class="btn-ghost sm danger" data-q="clear-finished"><i class="bi bi-trash3"></i>Clear finished</button>
+              </div>
+              <div class="dropdown q-manage">
+                <button class="btn-ghost sm" id="q-manage-btn" type="button" data-bs-toggle="dropdown" data-bs-auto-close="true" aria-expanded="false"><i class="bi bi-three-dots"></i>Manage…</button>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="q-manage-btn">
+                  <li><button class="dropdown-item" type="button" data-q="pause-all"><i class="bi bi-pause-fill"></i>Pause all</button></li>
+                  <li><button class="dropdown-item" type="button" data-q="resume-all"><i class="bi bi-play-fill"></i>Resume all</button></li>
+                  <li><button class="dropdown-item" type="button" data-q="retry-failed"><i class="bi bi-arrow-clockwise"></i>Retry failed</button></li>
+                  <li><hr class="dropdown-divider"></li>
+                  <li><button class="dropdown-item text-danger" type="button" data-q="cancel-all"><i class="bi bi-x-lg"></i>Cancel all</button></li>
+                  <li><button class="dropdown-item text-danger" type="button" data-q="clear-finished"><i class="bi bi-trash3"></i>Clear finished</button></li>
+                </ul>
+              </div>
             </div>
           </div>
 
@@ -218,6 +247,13 @@
 
         <!-- library -->
         <section id="panel-library" aria-label="Library" hidden>
+          <div id="my-dl" class="glass card-pad mb-3 server-only" aria-label="My downloads">
+            <div class="my-dl-head"><i class="bi bi-cloud-arrow-down-fill grad-text"></i><b>My downloads</b>
+              <span class="faint small">files ready to save — deleted from the server when the timer ends</span>
+              <button class="btn-ghost sm ms-auto" id="my-dl-refresh" type="button"><i class="bi bi-arrow-clockwise"></i>Refresh</button></div>
+            <div id="my-dl-list" class="my-dl-list"></div>
+            <p id="my-dl-empty" class="muted small mb-0">Nothing waiting. Finished downloads show up here with a Save button.</p>
+          </div>
           <div class="glass storage mb-3" id="storage" aria-label="Storage">
             <div class="storage-top"><span class="muted"><i class="bi bi-device-hdd"></i> Storage</span><b class="mono" id="st-used">—</b><span class="muted">used of <b class="mono" id="st-total" style="font-size:13px">—</b></span><span class="ms-auto mono" id="st-free"></span></div>
             <div class="storage-bar" id="st-bar" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i class="lib" id="st-lib"></i><i class="other" id="st-other"></i></div>
@@ -244,11 +280,13 @@
               <button class="btn-ghost sm danger admin-ctl" data-lbulk="delete"><i class="bi bi-trash3"></i>Delete</button>
             </div>
           </div>
+          <div id="lib-mode-tip" class="banner server-only" hidden style="margin-bottom:12px"></div>
           <div id="lib-grid" class="lib-grid"></div>
           <div id="lib-empty" class="empty glass" hidden>
             <div class="orb-ico"><i class="bi bi-folder2-open"></i></div>
             <h3 class="mb-1">This folder is empty</h3>
-            <p class="muted mb-0">Finished downloads appear here.</p>
+            <p class="muted mb-0 local-only">Finished downloads appear here.</p>
+            <p class="muted mb-0 server-only">Shared host library is empty. Your own finished downloads are saved from the job card on Downloads (Save), not here.</p>
           </div>
         </section>
       </div>
@@ -274,26 +312,45 @@
             <div class="small muted mb-2">Best in an <b>Incognito / private</b> window so YouTube does not rotate the session. Sign in there, then Connect with the small browser extension. No cookie files.
               <span id="cn-keep">This gives the server your YouTube session for <span id="cn-hours">24</span> hours, then it is deleted.</span></div>
             <button class="btn-grad" id="cn-go" type="button"><i class="bi bi-google me-2"></i>Sign in with Google</button>
-            <ol id="cn-steps" class="cn-steps small" hidden>
-              <li class="cn-phone-only">Phones can't run the extension, so use a computer that is signed in to YouTube: open this site there, press <b>Sign in with Google</b> once to get the extension, install it, then enter the code below in it. It links <b>this phone</b>, using that computer's YouTube account.</li>
-              <li class="cn-desktop-only">Prefer an <b>Incognito</b> window. Sign in to YouTube in the tab that just opened — it should land on <span class="mono">youtube.com/robots.txt</span> (stay there; don't browse the feed).
+            <div id="cn-steps" class="cn-steps" hidden>
+              <div class="cn-phone-only small mb-2">Phones can't run the extension. On a computer signed in to YouTube: open this site, press <b>Sign in with Google</b>, install the extension, then enter the code below. It links <b>this phone</b>.</div>
+              <div class="cn-stepper cn-desktop-only" id="cn-stepper">
+                <div class="cn-step active" data-step="1"><span class="cn-n">1</span><span>Sign in</span></div>
+                <div class="cn-step" data-step="2"><span class="cn-n">2</span><span>Install</span></div>
+                <div class="cn-step" data-step="3"><span class="cn-n">3</span><span>Code</span></div>
+                <div class="cn-step" data-step="4"><span class="cn-n">4</span><span>Close</span></div>
+              </div>
+              <div class="cn-pane cn-desktop-only" data-pane="1">
+                <p class="small mb-2">Prefer <b>Incognito</b>. Sign in — you should land on <span class="mono">youtube.com/robots.txt</span> (stay there).</p>
                 <div class="cn-actions">
                   <a class="btn-ghost sm" id="cn-open" href="#" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i>Open sign-in again</a>
                   <a class="btn-ghost sm" href="https://www.youtube.com/robots.txt" target="_blank" rel="noopener"><i class="bi bi-file-text"></i>Open robots.txt</a>
+                  <button type="button" class="btn-grad sm" data-cn-next="2">Next</button>
                 </div>
-              </li>
-              <li class="cn-desktop-only">Install the extension once (or open your already-installed copy). Unzip the download, open <span class="mono">chrome://extensions</span>
-                (Edge: <span class="mono">edge://extensions</span>), turn on <b>Developer mode</b>, press <b>Load unpacked</b> and pick the folder that contains <span class="mono">manifest.json</span>.
-                For Incognito: on that extension's card, turn on <b>Allow in Incognito</b> (extensions are off there by default).
+              </div>
+              <div class="cn-pane cn-desktop-only" data-pane="2" hidden>
+                <p class="small mb-2">Download the extension, unzip, <span class="mono">chrome://extensions</span> → Developer mode → Load unpacked. Turn on <b>Allow in Incognito</b>.</p>
                 <div class="cn-actions">
                   <a class="btn-ghost sm" href="/api/connect/extension.zip" download><i class="bi bi-download"></i>Download extension</a>
+                  <button type="button" class="btn-ghost sm" data-cn-next="1">Back</button>
+                  <button type="button" class="btn-grad sm" data-cn-next="3">Next</button>
                 </div>
-              </li>
-              <li>Click the extension, enter this code and press <b>Connect</b>, then <b>close the Incognito window</b> so that session is not rotated:
-                <span class="cn-code mono" id="cn-code">----</span>
-                <button class="btn-icon sm" id="cn-copy" type="button" aria-label="Copy the code" title="Copy"><i class="bi bi-clipboard"></i></button>
-                <div class="faint">Server: <span class="mono" id="cn-server"></span></div></li>
-            </ol>
+              </div>
+              <div class="cn-pane" data-pane="3" hidden>
+                <p class="small mb-2 cn-desktop-only">Open the extension, enter this code, press <b>Connect</b>:</p>
+                <div class="mb-2"><span class="cn-code mono" id="cn-code">----</span>
+                <button class="btn-icon sm" id="cn-copy" type="button" aria-label="Copy the code" title="Copy"><i class="bi bi-clipboard"></i></button></div>
+                <div class="faint small mb-2">Server: <span class="mono" id="cn-server"></span></div>
+                <div class="cn-actions cn-desktop-only">
+                  <button type="button" class="btn-ghost sm" data-cn-next="2">Back</button>
+                  <button type="button" class="btn-grad sm" data-cn-next="4">Next</button>
+                </div>
+              </div>
+              <div class="cn-pane cn-desktop-only" data-pane="4" hidden>
+                <p class="small mb-2">After Connect succeeds, <b>close the Incognito window</b> so YouTube does not rotate the session.</p>
+                <div class="cn-actions"><button type="button" class="btn-ghost sm" data-cn-next="3">Back</button></div>
+              </div>
+            </div>
             <div class="faint small mt-2 cn-desktop-only">Linking a phone or tablet? Press Sign in on the phone, then enter the code it shows in this extension: it works from any device.</div>
             <div id="cn-status" class="small mt-2" aria-live="polite"></div>
           </div>
@@ -378,7 +435,13 @@
           <div id="cart-form" class="mt-3">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div><div class="field-label">Name</div><input id="cart-name" class="form-control" maxlength="120" placeholder="Cart · date" autocomplete="off" style="padding:8px 12px"></div>
-              <div><div class="field-label">Format</div><div class="glass-in px-3 py-2" style="font-size:13px"><b id="cart-format">MP3</b> <span class="faint">— set in “New download”</span></div></div>
+              <div>
+                <div class="field-label">Format</div>
+                <div class="seg mb-2" id="cart-kind-seg"><button type="button" data-ckind="audio" class="active">Audio</button><button type="button" data-ckind="video">Video</button></div>
+                <div class="chips mb-2" id="cart-format-chips"></div>
+                <div class="chips" id="cart-quality-chips"></div>
+                <div class="faint mt-1" style="font-size:12px">Checkout uses these settings · <b id="cart-format">MP3</b></div>
+              </div>
             </div>
             <div class="opt mt-2 local-only" style="padding-left:2px"><div><div class="opt-t" style="font-size:13.5px">Download as one ZIP</div><div class="opt-d">Off: files go to <span class="mono" id="cart-folder-hint">downloads/&lt;name&gt;/</span></div></div><div class="form-check form-switch m-0"><input id="cart-zip" class="form-check-input" type="checkbox"></div></div>
             <div class="faint mt-2 server-only" style="font-size:12.5px"><i class="bi bi-file-earmark-zip"></i> You get one ZIP to save. It stays available for <b id="cart-ttl">60</b> minutes.</div>
@@ -515,6 +578,9 @@
             <li><button class="dropdown-item" data-scene="vinyl"><i class="bi bi-vinyl-fill"></i>Turntable</button></li>
             <li><button class="dropdown-item" data-scene="aurora"><i class="bi bi-cloud-haze2-fill"></i>Aurora</button></li>
             <li><button class="dropdown-item" data-scene="orbit"><i class="bi bi-bullseye"></i>Orbit</button></li>
+            <li><button class="dropdown-item" data-scene="bars"><i class="bi bi-bar-chart-fill"></i>Bars</button></li>
+            <li><button class="dropdown-item" data-scene="ripple"><i class="bi bi-broadcast"></i>Ripple</button></li>
+            <li><button class="dropdown-item" data-scene="constellation"><i class="bi bi-stars"></i>Constellation</button></li>
             <li><hr class="dropdown-divider"></li>
             <li><button class="dropdown-item" data-scene="random"><i class="bi bi-shuffle"></i>Random each track</button></li>
           </ul>
@@ -531,6 +597,7 @@
         </div>
         <div class="orbit"><img class="orbit-art" id="st-orbit-art" alt=""></div>
         <div class="aurora-card"><img id="st-aurora-art" alt=""></div>
+        <div class="scene-art"><img id="st-scene-art" alt=""></div>
       </section>
       <aside class="stage-lyrics" id="st-lyrics" hidden aria-label="Lyrics">
         <div class="ly-body" id="ly-body"></div>
