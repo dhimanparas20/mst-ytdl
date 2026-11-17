@@ -8,6 +8,7 @@ import pytest
 
 from models import JobKind
 from models import PlaylistMode as PM
+from models.paging import SEARCH_POOL_CAP
 from modules.ytdlp_util import UrlError, parse_url
 from services import InvalidRequestError
 from services import metadata_service as svc
@@ -244,7 +245,7 @@ class TestSearch:
         monkeypatch.setattr(svc, "_extract", lambda url, flat: self.RAW)
         assert svc.search("x y", music=True)[0].url.startswith("https://music.youtube.com/watch?v=")
 
-    @pytest.mark.parametrize("limit,asked", [(0, 1), (-5, 1), (10, 10), (999, 25)])
+    @pytest.mark.parametrize("limit,asked", [(0, 1), (-5, 1), (10, 10), (999, SEARCH_POOL_CAP)])
     def test_limit_is_clamped(self, monkeypatch, limit, asked):
         seen = {}
         monkeypatch.setattr(svc, "_extract", lambda url, flat: seen.update(url=url) or {"entries": []})

@@ -15,7 +15,7 @@ Paste a video, a song, an album or a whole playlist → pick MP3 / MP4 (and more
 
 The top bar (omnibar, status, music cart) and the player stay on every page. Submitting a download jumps to `/download`; opening a folder jumps to `/library`. Download format / quality / options (Settings → **Download defaults**, localStorage `mst.prefs`), theme colour / brightness and other UI prefs (motion, compact queue, auto-save, confirm-delete, Music links, explore default, lyrics language, **results layout**: list / cards / posters / stack / cinema / mosaic) live in this browser only (`localStorage` `mst.theme` / `mst.ui`) — never Redis. On desktop the top bar and page content share one width.
 
-![Downloads: search, format picker and the live queue](docs/screenshots/downloads.webp)
+![Home: Explore on top, then Find & download (Link / Search / Mine)](docs/screenshots/home.webp)
 
 ```
 downloads/
@@ -40,6 +40,7 @@ downloads/
 | Extras | Cover art + tags embedded, subtitles (download + embed), **SponsorBlock cut** (removes sponsor / self-promo / interaction segments, off by default), speed cap, skip files that already exist (or *overwrite*), playlist track picker (`1-5, 8, 12-`), custom folder name, ZIP download of a playlist, built-in player + library browser |
 | Resilience | Auto-retry for transient errors (not for private/removed videos), crash recovery (dead workers' downloads become *Paused*), health pill (Redis / worker / ffmpeg / **JS runtime** — missing Node → degraded), optional `DL_WEBHOOK_URL` (ntfy) on job finish |
 | Cart | **Download cart**: collect songs from search results, playlist previews and pasted links, then download them in one go (one folder, or one ZIP) |
+| Your account | **Mine** tab: your playlists (Liked music, Liked videos, Watch later, library) and YouTube home feed, with play / shuffle / cart / download on every track; **Sign in with Google** through a browser extension — no cookie files, no Google Cloud credentials — see *Sign in with Google* and *My YouTube* below |
 | Subscriptions | **Follow a channel or playlist**: new uploads are queued automatically (checked every 15 min) with the format you picked when subscribing — see *Subscriptions* below |
 | Admin dashboard | **`/admin`** (username + password): live analytics, every visitor's downloads, visitors & IP blocks, full file manager (hidden folders too), live settings and hard limits, maintenance mode, cache controls, log viewer |
 | Server mode | `SERVER_MODE=true` turns it into a public site: private per-visitor queues, finished files handed to the browser and **deleted after an hour** (**My downloads** + one-shot *Keep longer*), admin-locked library (shared host files — not your deliveries), maintenance banner, limits — see below |
@@ -104,6 +105,14 @@ Statistics are Redis counters kept `SERVER_ANALYTICS_DAYS` (30); visitors (anony
 
 Nobody has to export a cookies file. In the cookies dialog, **Sign in with Google** opens Google's sign-in in a new tab (after login it continues to `https://www.youtube.com/robots.txt`, not the homepage) and shows a one-time code. A small extension (`extension/`, Chrome / Edge / Brave / Firefox) sends that browser's YouTube cookies to your server when the person presses *Connect* and types the code. No Google Cloud project, OAuth client or secret is involved: a web page cannot read another site's cookies, so the extension does the one step the page can't.
 
+<table><tr>
+<td><img src="docs/screenshots/connect-dialog.webp" alt="Sign in with Google: the four-step Connect wizard"></td>
+<td align="center" valign="top"><img src="docs/screenshots/connect-phone.webp" alt="The same dialog on a phone: enter the code on a computer" width="260"></td>
+</tr><tr>
+<td align="center"><sub>Computer: sign in → install → enter the code → close Incognito</sub></td>
+<td align="center"><sub>Phone: hand the code to a signed-in computer</sub></td>
+</tr></table>
+
 **Longer-lasting sessions (recommended):** do this in an **Incognito / private** window. Extensions are off there by default — open `chrome://extensions` (or `edge://extensions`), open this extension's card, and turn on **Allow in Incognito**. Sign in, stay on `youtube.com/robots.txt`, Connect, then **close the Incognito window** so YouTube does not rotate that session while you keep browsing.
 
 - **Phones and tablets** can't run the extension. There the dialog skips the Google tab and tells the person to enter the code on a computer that is signed in to YouTube: the code belongs to the browser that asked for it, so that computer's extension links the phone (using the computer's YouTube account).
@@ -114,7 +123,17 @@ Nobody has to export a cookies file. In the cookies dialog, **Sign in with Googl
 
 ## My YouTube (playlists and home feed)
 
-The **Mine** tab of *New download* reads the signed-in account through your YouTube cookies: *Liked music*, *Liked videos*, *Watch later*, your library playlists, and the home feed YouTube recommends to you. A playlist opens in the normal link flow (pick tracks, play, shuffle, add to cart, download; every track row also has its own play / cart / download buttons); feed rows have the same play / cart / download buttons plus play all, shuffle and download all.
+The **Mine** tab of *New download* reads the signed-in account through your YouTube cookies: *Liked music*, *Liked videos*, *Watch later*, your library playlists, and the home feed YouTube recommends to you. A playlist opens in the normal link flow (pick tracks, play, shuffle, add to cart, download; every track row has its own play (tap the thumbnail or title), cart and download buttons); feed rows have the same buttons, and the list has play all, shuffle and download all.
+
+![Mine: playlists and home feed](docs/screenshots/mine.webp)
+
+<table><tr>
+<td><img src="docs/screenshots/mine-tracks.webp" alt="A playlist opened from Mine: per-track cart and download buttons"></td>
+<td><img src="docs/screenshots/mine-signin.webp" alt="Mine without cookies: a button opens the sign-in dialog"></td>
+</tr><tr>
+<td align="center"><sub>A playlist opens in the link flow, every track has its own buttons</sub></td>
+<td align="center"><sub>Not signed in yet: one button opens the sign-in dialog</sub></td>
+</tr></table>
 
 - **Local mode** uses the server's cookies (yours). **Server mode** uses only the visitor's *own* cookies, never the server's, even with `SERVER_SHARE_SERVER_COOKIES`, and caches per visitor.
 - YouTube Music's own home page is not available to yt-dlp; *Liked music* (opens with YouTube Music links) and the YouTube home feed stand in for it.
@@ -342,8 +361,8 @@ Loaded by `configs/config.py` (real env vars win over `.env`, which wins over de
 ## Tests
 
 ```bash
-node --test "web/tests/*.test.js"   # 28 tests: formatting, speed units, shuffle/queue/quality/window logic
-uv run pytest                 # ~1208 fast tests (fake Redis + scripted yt-dlp), ~70 s
+node --test "web/tests/*.test.js"   # 31 tests: formatting, speed units, shuffle/queue/quality/window logic
+uv run pytest                 # ~1230 fast tests (fake Redis + scripted yt-dlp), ~70 s
 uv run pytest -m live         # real YouTube / yt-dlp / ffmpeg (downloads a few MB, needs internet)
 uv run ruff check .
 ```

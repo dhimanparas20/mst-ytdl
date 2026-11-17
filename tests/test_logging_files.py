@@ -7,7 +7,14 @@ import uuid
 
 import pytest
 
-from modules.logger import QuietHealthAccessFilter, attach_server_logs, get_logger, log_dir, quiet_health_access, reset_file_logging
+from modules.logger import (
+    QuietHealthAccessFilter,
+    attach_server_logs,
+    get_logger,
+    log_dir,
+    quiet_health_access,
+    reset_file_logging,
+)
 
 
 @pytest.fixture

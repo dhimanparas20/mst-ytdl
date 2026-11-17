@@ -14,7 +14,7 @@ Results are paginated (``page`` / ``page_size``, max 10 pages) from a cached poo
 
 from __future__ import annotations
 
-from models import ExploreFeed, EntryInfo
+from models import EntryInfo, ExploreFeed
 from models.paging import SEARCH_DEFAULT_PAGE_SIZE, SEARCH_MAX_PAGES, page_window
 from modules import get_logger
 from services.account import account_service

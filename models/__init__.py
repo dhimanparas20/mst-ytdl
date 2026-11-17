@@ -4,8 +4,6 @@ Call sites always do ``from models import DownloadJob``, never module paths.
 """
 
 from models.account import AccountFeed, AccountPlaylist, AccountPlaylists
-from models.explore import ExploreFeed
-from models.paging import SearchResults
 from models.cookies import CookieStatus, CookieTestResult
 from models.download import (
     CartEntry,
@@ -38,7 +36,9 @@ from models.enums import (
     PlaylistMode,
     ResolveState,
 )
+from models.explore import ExploreFeed
 from models.lyrics import LyricLine, Lyrics
+from models.paging import SearchResults
 from models.stream import (
     QualityOption,
     StreamFormat,

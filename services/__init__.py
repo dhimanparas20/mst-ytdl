@@ -13,7 +13,6 @@ from services.cookies import CookieService, cookie_service
 from services.delivery import DeliveryService, delivery_service
 from services.dispatch import Dispatcher, get_dispatcher, set_dispatcher
 from services.downloader import DownloadRunner, download_runner
-from services.explore import ExploreService, explore_service
 from services.errors import (
     ConflictError,
     ForbiddenError,
@@ -24,6 +23,7 @@ from services.errors import (
     UnavailableError,
     UpstreamError,
 )
+from services.explore import ExploreService, explore_service
 from services.files import FileEntry, FileManagerService, file_manager
 from services.library import LibraryEntry, LibraryService, library_service
 from services.lyrics import LyricsService, lyrics_service

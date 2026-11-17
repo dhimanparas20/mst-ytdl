@@ -184,7 +184,7 @@ function clearPreview() {
   $("#preview").innerHTML = "";
   $("#amb-banner").hidden = true;
   renderUrlChips();
-  renderQuality(); updateGo();
+  renderVideoPrefs(); updateGo();
 }
 
 async function analyze(url) {
@@ -201,7 +201,7 @@ async function analyze(url) {
     S.selection = new Set(info.entries.filter((e) => e.available).map((e) => e.index));
     renderUrlChips();
     renderPreview();
-    renderQuality();
+    renderVideoPrefs();
     updateGo();
   } catch (e) {
     if (ticket !== S.analyzing) return;
